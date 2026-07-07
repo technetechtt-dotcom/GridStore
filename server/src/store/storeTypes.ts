@@ -15,6 +15,12 @@ export interface ListingInput {
   inventory: number;
   description: string;
   location: string;
+  saleMode?: 'fixed' | 'haggle' | 'auction';
+  haggleEnabled?: boolean;
+  startingBid?: number;
+  bidIncrement?: number;
+  reservePrice?: number;
+  auctionDurationHours?: number;
 }
 
 export interface CreateOrderInput {
@@ -33,6 +39,12 @@ export interface PlatformStore {
   oauthLogin(provider: 'google' | 'github', role: UserRole): Promise<AuthUser>;
   updateProfile(userId: string, input: { name: string; email: string }): Promise<AppUser>;
   listOrders(userId: string): Order[];
+  getOrder(userId: string, orderId: string): Order | undefined;
+  updateOrderStatus(
+    userId: string,
+    orderId: string,
+    status: Order['status']
+  ): Promise<Order>;
   createOrder(userId: string, input: CreateOrderInput): Promise<Order>;
   refundOrder(userId: string, orderId: string): Promise<Order>;
   listPublicListings(query?: string, status?: string): SellerListing[];
@@ -50,4 +62,18 @@ export interface PlatformStore {
     input: Partial<ListingInput>
   ): Promise<SellerListing>;
   toggleListingPause(userId: string, listingId: string): Promise<SellerListing>;
+  listAllUsers(): AppUser[];
+  listAllOrders(): Array<Order & { buyerName: string; buyerEmail: string }>;
+  listAllListingsAdmin(): SellerListing[];
+  adminUpdateUser(userId: string, patch: { role?: UserRole; verified?: boolean }): Promise<AppUser>;
+  adminUpdateListingStatus(listingId: string, status: SellerListing['status']): Promise<SellerListing>;
+  adminUpdateOrder(
+    orderId: string,
+    patch: { status?: Order['status']; paymentStatus?: Order['paymentStatus'] }
+  ): Promise<Order & { buyerName: string; buyerEmail: string }>;
+  updateListingTradeFields(
+    listingId: string,
+    patch: Partial<Pick<SellerListing, 'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode'>>
+  ): Promise<SellerListing>;
+  listAuctionListings(): SellerListing[];
 }

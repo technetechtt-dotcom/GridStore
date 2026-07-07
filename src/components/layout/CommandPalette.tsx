@@ -25,6 +25,7 @@ import { Dialog, DialogContent } from '../ui/dialog';
 const NAV_ITEMS = [
   { label: 'Home', to: '/', icon: Home, group: 'Navigate' },
   { label: 'Marketplace', to: '/marketplace', icon: ShoppingBag, group: 'Navigate' },
+  { label: 'Auctions', to: '/auctions', icon: Package, group: 'Navigate' },
   { label: 'Services', to: '/services', icon: Wrench, group: 'Navigate' },
   { label: 'Rentals', to: '/rentals', icon: Package, group: 'Navigate' },
   { label: 'Jobs', to: '/jobs', icon: Briefcase, group: 'Navigate' },

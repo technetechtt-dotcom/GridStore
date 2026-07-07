@@ -1,4 +1,17 @@
-import type { AppUser, Order, OrderLine, SellerListing, UserRole } from '../types';
+import type {
+  AppUser,
+  BookingRequest,
+  JobApplication,
+  MessageThread,
+  NotificationItem,
+  Order,
+  OrderLine,
+  RentalReservation,
+  SellerListing,
+  StoreProfile,
+  TrustReport,
+  UserRole,
+} from '../types';
 import { getApiMode } from './mockApi';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
@@ -74,7 +87,7 @@ export async function probeAuthApi() {
   }
 }
 
-async function platformFetch<T>(
+export async function platformFetch<T>(
   path: string,
   options: RequestInit & { query?: QueryParams; auth?: boolean } = {}
 ): Promise<T> {
@@ -235,7 +248,41 @@ function normalizeListing(row: Record<string, unknown>): SellerListing {
     inventory: Number(row.inventory ?? 0),
     riskScore: Number(row.riskScore ?? row.risk_score ?? 0),
     verified: Boolean(row.verified),
+    saleMode: (row.saleMode ?? row.sale_mode) as SellerListing['saleMode'],
+    haggleEnabled: Boolean(row.haggleEnabled ?? row.haggle_enabled),
+    startingBid:
+      row.startingBid != null || row.starting_bid != null
+        ? Number(row.startingBid ?? row.starting_bid)
+        : undefined,
+    currentBid:
+      row.currentBid != null || row.current_bid != null
+        ? Number(row.currentBid ?? row.current_bid)
+        : undefined,
+    bidIncrement:
+      row.bidIncrement != null || row.bid_increment != null
+        ? Number(row.bidIncrement ?? row.bid_increment)
+        : undefined,
+    reservePrice:
+      row.reservePrice != null || row.reserve_price != null
+        ? Number(row.reservePrice ?? row.reserve_price)
+        : undefined,
+    auctionEndsAt:
+      row.auctionEndsAt ?? row.auction_ends_at
+        ? String(row.auctionEndsAt ?? row.auction_ends_at)
+        : undefined,
+    auctionStatus: (row.auctionStatus ?? row.auction_status) as SellerListing['auctionStatus'],
+    bidCount:
+      row.bidCount != null || row.bid_count != null
+        ? Number(row.bidCount ?? row.bid_count)
+        : undefined,
   };
+}
+
+export async function apiGetListing(listingId: string) {
+  const row = await platformFetch<Record<string, unknown>>(`/listings/${encodeURIComponent(listingId)}`, {
+    auth: false,
+  });
+  return normalizeListing(row);
 }
 
 export async function apiGetActiveListings(query = '') {
@@ -260,6 +307,12 @@ export async function apiCreateListing(input: {
   inventory: number;
   description: string;
   location: string;
+  saleMode?: 'fixed' | 'haggle' | 'auction';
+  haggleEnabled?: boolean;
+  startingBid?: number;
+  bidIncrement?: number;
+  reservePrice?: number;
+  auctionDurationHours?: number;
 }) {
   const row = await platformFetch<Record<string, unknown>>('/listings', {
     method: 'POST',
@@ -277,6 +330,12 @@ export async function apiUpdateListing(
     inventory: number;
     description: string;
     location: string;
+    saleMode: 'fixed' | 'haggle' | 'auction';
+    haggleEnabled: boolean;
+    startingBid: number;
+    bidIncrement: number;
+    reservePrice: number;
+    auctionDurationHours: number;
   }>
 ) {
   const row = await platformFetch<Record<string, unknown>>(
@@ -297,13 +356,207 @@ export async function apiToggleListingPause(listingId: string) {
   return normalizeListing(row);
 }
 
+export async function apiGetCart() {
+  return platformFetch<Record<string, number>>('/cart');
+}
+
+export async function apiSaveCart(cart: Record<string, number>) {
+  return platformFetch<Record<string, number>>('/cart', {
+    method: 'PUT',
+    body: JSON.stringify(cart),
+  });
+}
+
+export async function apiGetWishlist() {
+  return platformFetch<string[]>('/wishlist');
+}
+
+export async function apiSaveWishlist(productIds: string[]) {
+  return platformFetch<string[]>('/wishlist', {
+    method: 'PUT',
+    body: JSON.stringify({ productIds }),
+  });
+}
+
+export async function apiGetNotifications() {
+  return platformFetch<NotificationItem[]>('/notifications');
+}
+
+export async function apiMarkNotificationRead(notificationId: string) {
+  return platformFetch<NotificationItem[]>(`/notifications/${encodeURIComponent(notificationId)}/read`, {
+    method: 'PATCH',
+  });
+}
+
+export async function apiClearNotifications() {
+  return platformFetch<NotificationItem[]>('/notifications/clear', { method: 'POST' });
+}
+
+export async function apiGetMessageThreads() {
+  return platformFetch<MessageThread[]>('/messages/threads');
+}
+
+export async function apiSendMessage(
+  threadId: string,
+  input: { text: string; author?: 'buyer' | 'seller'; title?: string; participant?: string }
+) {
+  return platformFetch<MessageThread[]>(`/messages/threads/${encodeURIComponent(threadId)}`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function apiGetBookings() {
+  return platformFetch<BookingRequest[]>('/bookings');
+}
+
+export async function apiCreateBooking(input: {
+  serviceId: string;
+  serviceTitle: string;
+  provider: string;
+  requestedDate?: string;
+  note?: string;
+}) {
+  return platformFetch<BookingRequest>('/bookings', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function apiGetReservations() {
+  return platformFetch<RentalReservation[]>('/reservations');
+}
+
+export async function apiCreateReservation(input: {
+  rentalId: string;
+  rentalTitle: string;
+  startDate: string;
+  endDate: string;
+}) {
+  return platformFetch<RentalReservation>('/reservations', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function apiGetApplications() {
+  return platformFetch<JobApplication[]>('/applications');
+}
+
+export async function apiCreateApplication(input: {
+  jobId: string;
+  jobTitle: string;
+  applicantName?: string;
+  cvFileName?: string;
+}) {
+  return platformFetch<JobApplication>('/applications', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function apiGetReports() {
+  return platformFetch<TrustReport[]>('/reports');
+}
+
+export async function apiCreateReport(input: {
+  targetType: TrustReport['targetType'];
+  targetId: string;
+  reason?: string;
+}) {
+  return platformFetch<TrustReport>('/reports', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+function normalizeStore(row: Record<string, unknown>): StoreProfile {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ''),
+    category: String(row.category ?? ''),
+    rating: Number(row.rating ?? 0),
+    followers: Number(row.followers ?? 0),
+    location: String(row.location ?? ''),
+    description: String(row.description ?? ''),
+    supportEmail:
+      row.supportEmail != null || row.support_email != null
+        ? String(row.supportEmail ?? row.support_email)
+        : undefined,
+    status: (row.status as StoreProfile['status']) ?? 'active',
+    verified: Boolean(row.verified),
+    image: row.image ? String(row.image) : undefined,
+  };
+}
+
+export async function apiGetMyStores() {
+  const rows = await platformFetch<Record<string, unknown>[]>('/stores/mine');
+  return rows.map(normalizeStore);
+}
+
+export async function apiCreateStore(input: {
+  name: string;
+  category: string;
+  location: string;
+  description: string;
+  supportEmail?: string;
+  status?: 'active' | 'draft' | 'paused';
+}) {
+  const row = await platformFetch<Record<string, unknown>>('/stores', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return normalizeStore(row);
+}
+
+export async function apiUpdateStore(
+  storeId: string,
+  input: Partial<{
+    name: string;
+    category: string;
+    location: string;
+    description: string;
+    supportEmail: string;
+    status: 'active' | 'draft' | 'paused';
+  }>
+) {
+  const row = await platformFetch<Record<string, unknown>>(`/stores/${encodeURIComponent(storeId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  return normalizeStore(row);
+}
+
 export async function syncPlatformData() {
   const token = getAuthToken();
-  const [activeListings, myListings, orders, me] = await Promise.all([
+  const [
+    activeListings,
+    myListings,
+    orders,
+    me,
+    cart,
+    wishlist,
+    notifications,
+    messageThreads,
+    bookingRequests,
+    rentalReservations,
+    jobApplications,
+    trustReports,
+    sellerStores,
+  ] = await Promise.all([
     apiGetActiveListings(),
     token ? apiGetMyListings().catch(() => [] as SellerListing[]) : Promise.resolve([]),
     token ? apiGetOrders().catch(() => [] as Order[]) : Promise.resolve([]),
     token ? apiGetMe().catch(() => null) : Promise.resolve(null),
+    token ? apiGetCart().catch(() => ({} as Record<string, number>)) : Promise.resolve({}),
+    token ? apiGetWishlist().catch(() => [] as string[]) : Promise.resolve([]),
+    token ? apiGetNotifications().catch(() => [] as NotificationItem[]) : Promise.resolve([]),
+    token ? apiGetMessageThreads().catch(() => [] as MessageThread[]) : Promise.resolve([]),
+    token ? apiGetBookings().catch(() => [] as BookingRequest[]) : Promise.resolve([]),
+    token ? apiGetReservations().catch(() => [] as RentalReservation[]) : Promise.resolve([]),
+    token ? apiGetApplications().catch(() => [] as JobApplication[]) : Promise.resolve([]),
+    token ? apiGetReports().catch(() => [] as TrustReport[]) : Promise.resolve([]),
+    token ? apiGetMyStores().catch(() => [] as StoreProfile[]) : Promise.resolve([]),
   ]);
 
   const listingMap = new Map<string, SellerListing>();
@@ -314,5 +567,14 @@ export async function syncPlatformData() {
     user: me,
     orders,
     sellerListings: Array.from(listingMap.values()),
+    cart,
+    wishlistIds: wishlist,
+    notifications,
+    messageThreads,
+    bookingRequests,
+    rentalReservations,
+    jobApplications,
+    trustReports,
+    sellerStores,
   };
 }

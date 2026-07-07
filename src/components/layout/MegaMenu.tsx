@@ -40,6 +40,10 @@ const COLUMNS: MegaColumn[] = [
   {
     label: 'Flash Sales',
     to: '/flash-sales'
+  },
+  {
+    label: 'Live Auctions',
+    to: '/auctions'
   }]
 
 },

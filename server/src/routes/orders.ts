@@ -26,6 +26,39 @@ ordersRouter.get('/', (req: AuthenticatedRequest, res) => {
   res.json(orders);
 });
 
+ordersRouter.get('/:id', (req: AuthenticatedRequest, res) => {
+  const order = platformStore.getOrder(req.user!.id, req.params.id);
+  if (!order) {
+    res.status(404).json({ error: 'Order not found' });
+    return;
+  }
+  res.json(stripUserId(order));
+});
+
+ordersRouter.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
+  const parsed = z
+    .object({
+      status: z.enum(['pending_payment', 'paid', 'processing', 'shipped', 'delivered', 'refunded']),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid status payload' });
+    return;
+  }
+
+  try {
+    const order = await platformStore.updateOrderStatus(
+      req.user!.id,
+      req.params.id,
+      parsed.data.status
+    );
+    res.json(stripUserId(order));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to update order';
+    res.status(404).json({ error: message });
+  }
+});
+
 ordersRouter.post('/', async (req: AuthenticatedRequest, res) => {
   const parsed = createOrderSchema.safeParse(req.body);
   if (!parsed.success) {

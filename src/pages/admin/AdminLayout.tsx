@@ -31,9 +31,9 @@ export function AdminLayout() {
   return (
     <div className="container mx-auto px-4 py-8">
       <PageHeader
-        eyebrow="Admin"
-        title="Platform Control Center"
-        description="Manage users, listings, payments, disputes, and AI systems across GridMarket AI."
+        eyebrow="Ops"
+        title="Platform Ops Dashboard"
+        description="Manage users, content, sales, payments, and trust signals across GridMarket AI."
       />
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[240px_1fr]">
         <aside className="rounded-2xl border bg-card p-3 shadow-soft h-fit lg:sticky lg:top-24">

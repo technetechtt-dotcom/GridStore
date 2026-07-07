@@ -25,6 +25,10 @@ const SUB_NAV = [
   to: '/marketplace'
 },
 {
+  label: 'Auctions',
+  to: '/auctions'
+},
+{
   label: 'Services',
   to: '/services'
 },

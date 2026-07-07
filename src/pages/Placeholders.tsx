@@ -15,10 +15,35 @@ import {
   getServices,
   getStores,
 } from '../services/mockApi';
-import type { Job, Product, Rental, Service, StoreProfile } from '../types';
+import { apiGetListing, isPlatformApiAvailable } from '../services/platformApi';
+import { apiGetAuctionDetail, apiGetAuctions } from '../services/tradeApi';
+import type { AuctionBid, HaggleOffer, Job, Product, Rental, SellerListing, Service, StoreProfile } from '../types';
 
 function Currency({ value }: { value: number }) {
   return <>{`R ${value.toLocaleString('en-ZA')}`}</>;
+}
+
+function SaleModeBadge({ listing }: { listing: Partial<SellerListing> }) {
+  if (listing.saleMode === 'auction' || listing.auctionStatus === 'live') {
+    return <Badge variant="secondary">Live auction</Badge>;
+  }
+  if (listing.haggleEnabled || listing.saleMode === 'haggle') {
+    return <Badge variant="outline">Haggle</Badge>;
+  }
+  return null;
+}
+
+function minimumBid(listing: SellerListing) {
+  const increment = listing.bidIncrement ?? 50;
+  const floor = listing.startingBid ?? listing.price;
+  if (!listing.currentBid || listing.currentBid <= 0) return floor;
+  return listing.currentBid + increment;
+}
+
+function isAuctionLive(listing: SellerListing) {
+  if (listing.saleMode !== 'auction' || listing.auctionStatus !== 'live') return false;
+  if (!listing.auctionEndsAt) return true;
+  return new Date(listing.auctionEndsAt).getTime() > Date.now();
 }
 
 function EmptyState({
@@ -208,6 +233,7 @@ export function Marketplace() {
                   ) : item.badge ? (
                     <Badge variant="secondary">{item.badge}</Badge>
                   ) : null}
+                  <SaleModeBadge listing={item as SellerListing} />
                 </div>
                 <p className="text-sm text-muted-foreground">{item.seller}</p>
                 <p className="text-sm text-muted-foreground">{item.location}</p>
@@ -278,23 +304,76 @@ export function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const {
+    user,
     addToCart,
     toggleWishlist,
     isInWishlist,
     sendMessage,
     reportTrustIssue,
     sellerListings,
+    submitOffer,
+    placeBid,
+    loadListingOffers,
   } = useApp();
-  const [product, setProduct] = useState<Product | null>(null);
+  const [product, setProduct] = useState<SellerListing | null>(null);
   const [loading, setLoading] = useState(true);
+  const [offers, setOffers] = useState<HaggleOffer[]>([]);
+  const [bids, setBids] = useState<AuctionBid[]>([]);
+  const [offerAmount, setOfferAmount] = useState('');
+  const [offerMessage, setOfferMessage] = useState('');
+  const [bidAmount, setBidAmount] = useState('');
+  const [tradeBusy, setTradeBusy] = useState(false);
 
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    getProductById(id)
-      .then((item) => setProduct(item ?? sellerListings.find((listing) => listing.id === id) ?? null))
-      .finally(() => setLoading(false));
-  }, [id, sellerListings]);
+
+    const load = async () => {
+      let item: SellerListing | null =
+        sellerListings.find((listing) => listing.id === id) ?? null;
+
+      if (isPlatformApiAvailable()) {
+        try {
+          item = await apiGetListing(id);
+        } catch {
+          // Fall back to catalogue lookup.
+        }
+      }
+
+      if (!item) {
+        const catalogueItem = await getProductById(id);
+        item = catalogueItem
+          ? ({ ...catalogueItem, status: 'active', inventory: 1, riskScore: 10, verified: true } as SellerListing)
+          : null;
+      }
+
+      setProduct(item);
+
+      if (item?.saleMode === 'auction' && isPlatformApiAvailable()) {
+        try {
+          const detail = await apiGetAuctionDetail(id);
+          setProduct(detail.listing);
+          setBids(detail.bids);
+        } catch {
+          setBids([]);
+        }
+      } else {
+        setBids([]);
+      }
+
+      if (user && item && (item.haggleEnabled || item.saleMode === 'haggle')) {
+        try {
+          setOffers(await loadListingOffers(id));
+        } catch {
+          setOffers([]);
+        }
+      } else {
+        setOffers([]);
+      }
+    };
+
+    void load().finally(() => setLoading(false));
+  }, [id, sellerListings, user, loadListingOffers]);
 
   if (loading) {
     return (
@@ -315,6 +394,63 @@ export function ProductDetail() {
     );
   }
 
+  const isAuction = product.saleMode === 'auction';
+  const isHaggle = product.haggleEnabled || product.saleMode === 'haggle';
+  const auctionLive = isAuction && isAuctionLive(product);
+  const minBid = isAuction ? minimumBid(product) : 0;
+
+  const handleSubmitOffer = async () => {
+    if (!id) return;
+    const amount = Number(offerAmount);
+    if (!amount || amount <= 0) {
+      toast.error('Enter a valid offer amount');
+      return;
+    }
+    if (!user) {
+      toast.error('Sign in to make an offer');
+      navigate('/login');
+      return;
+    }
+    setTradeBusy(true);
+    try {
+      const offer = await submitOffer(id, amount, offerMessage.trim() || undefined);
+      setOffers((current) => [offer, ...current]);
+      setOfferAmount('');
+      setOfferMessage('');
+      toast.success('Offer submitted to seller');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to submit offer');
+    } finally {
+      setTradeBusy(false);
+    }
+  };
+
+  const handlePlaceBid = async () => {
+    if (!id) return;
+    const amount = Number(bidAmount);
+    if (!amount || amount <= 0) {
+      toast.error('Enter a valid bid amount');
+      return;
+    }
+    if (!user) {
+      toast.error('Sign in to place a bid');
+      navigate('/login');
+      return;
+    }
+    setTradeBusy(true);
+    try {
+      const result = await placeBid(id, amount);
+      setProduct(result.listing);
+      setBids((current) => [result.bid, ...current]);
+      setBidAmount('');
+      toast.success('Bid placed successfully');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to place bid');
+    } finally {
+      setTradeBusy(false);
+    }
+  };
+
   return (
     <div className="container mx-auto px-4 py-10">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -322,35 +458,150 @@ export function ProductDetail() {
           <img src={product.image} alt={product.title} className="w-full h-full object-cover" />
         </div>
         <div className="space-y-4">
-          <Badge variant="secondary">{product.category}</Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary">{product.category}</Badge>
+            <SaleModeBadge listing={product} />
+          </div>
           <h1 className="text-3xl font-display font-bold">{product.title}</h1>
           <p className="text-muted-foreground">{product.description}</p>
           <p className="text-muted-foreground">
             Sold by {product.seller} • {product.location}
           </p>
-          <p className="text-3xl font-bold">
-            <Currency value={product.price} />
-          </p>
+
+          {isAuction ? (
+            <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+              <p className="text-sm text-muted-foreground">
+                {auctionLive ? 'Live auction' : 'Auction ended'}
+              </p>
+              <p className="text-3xl font-bold">
+                <Currency value={product.currentBid && product.currentBid > 0 ? product.currentBid : minBid} />
+                <span className="ml-2 text-base font-normal text-muted-foreground">
+                  {product.currentBid && product.currentBid > 0 ? 'current bid' : 'starting bid'}
+                </span>
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Buy now price: <Currency value={product.price} /> • {product.bidCount ?? 0} bids
+              </p>
+              {product.auctionEndsAt ? (
+                <p className="text-sm text-muted-foreground">
+                  Ends {new Date(product.auctionEndsAt).toLocaleString('en-ZA')}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-3xl font-bold">
+              <Currency value={product.price} />
+              {isHaggle ? (
+                <span className="ml-2 text-base font-normal text-muted-foreground">open to offers</span>
+              ) : null}
+            </p>
+          )}
+
+          {!isAuction ? (
+            <div className="flex flex-wrap gap-3">
+              <Button
+                onClick={() => {
+                  addToCart(product.id);
+                  toast.success('Item added to cart');
+                }}
+              >
+                Add to cart
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  toggleWishlist(product.id);
+                  toast.success(
+                    isInWishlist(product.id) ? 'Removed from wishlist' : 'Saved to wishlist'
+                  );
+                }}
+              >
+                {isInWishlist(product.id) ? 'Remove wishlist' : 'Save wishlist'}
+              </Button>
+            </div>
+          ) : null}
+
+          {isHaggle ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Make an offer</CardTitle>
+                <CardDescription>
+                  Like Yaga — submit a price below the asking amount and the seller can accept, decline, or counter.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Input
+                  type="number"
+                  value={offerAmount}
+                  onChange={(event) => setOfferAmount(event.target.value)}
+                  placeholder={`Offer below R ${product.price.toLocaleString('en-ZA')}`}
+                />
+                <textarea
+                  value={offerMessage}
+                  onChange={(event) => setOfferMessage(event.target.value)}
+                  className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  placeholder="Optional message to the seller"
+                />
+                <Button disabled={tradeBusy} onClick={() => void handleSubmitOffer()}>
+                  Submit offer
+                </Button>
+                {offers.length ? (
+                  <div className="space-y-2 pt-2">
+                    <p className="text-sm font-medium">Your offers</p>
+                    {offers.map((offer) => (
+                      <div key={offer.id} className="rounded-md border border-border p-2 text-sm">
+                        <Currency value={offer.amount} /> — {offer.status}
+                        {offer.counterAmount ? (
+                          <span className="text-muted-foreground">
+                            {' '}
+                            (counter: <Currency value={offer.counterAmount} />)
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {isAuction ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Place a bid</CardTitle>
+                <CardDescription>
+                  Minimum next bid: <Currency value={minBid} />
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Input
+                  type="number"
+                  value={bidAmount}
+                  onChange={(event) => setBidAmount(event.target.value)}
+                  placeholder={`Bid at least R ${minBid.toLocaleString('en-ZA')}`}
+                  disabled={!auctionLive}
+                />
+                <Button disabled={tradeBusy || !auctionLive} onClick={() => void handlePlaceBid()}>
+                  {auctionLive ? 'Place bid' : 'Auction ended'}
+                </Button>
+                {bids.length ? (
+                  <div className="space-y-2 pt-2">
+                    <p className="text-sm font-medium">Recent bids</p>
+                    {bids.slice(0, 8).map((bid) => (
+                      <div key={bid.id} className="flex justify-between text-sm rounded-md border border-border p-2">
+                        <span>{bid.bidderName}</span>
+                        <span>
+                          <Currency value={bid.amount} />
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
+
           <div className="flex flex-wrap gap-3">
-            <Button
-              onClick={() => {
-                addToCart(product.id);
-                toast.success('Item added to cart');
-              }}
-            >
-              Add to cart
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                toggleWishlist(product.id);
-                toast.success(
-                  isInWishlist(product.id) ? 'Removed from wishlist' : 'Saved to wishlist'
-                );
-              }}
-            >
-              {isInWishlist(product.id) ? 'Remove wishlist' : 'Save wishlist'}
-            </Button>
             <Button
               variant="secondary"
               onClick={() => {
@@ -370,9 +621,125 @@ export function ProductDetail() {
             >
               Report listing
             </Button>
+            {isAuction ? (
+              <Button variant="outline" asChild>
+                <Link to="/auctions">Browse all auctions</Link>
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+export function Auctions() {
+  const { sellerListings } = useApp();
+  const [auctions, setAuctions] = useState<SellerListing[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    const load = async () => {
+      if (isPlatformApiAvailable()) {
+        try {
+          setAuctions(await apiGetAuctions());
+          return;
+        } catch {
+          // Fall back to local listings.
+        }
+      }
+      setAuctions(
+        sellerListings.filter(
+          (listing) => listing.saleMode === 'auction' && listing.status === 'active'
+        )
+      );
+    };
+    void load().finally(() => setLoading(false));
+  }, [sellerListings]);
+
+  const liveAuctions = auctions.filter(isAuctionLive);
+  const endedAuctions = auctions.filter((listing) => !isAuctionLive(listing));
+
+  return (
+    <div className="container mx-auto px-4 py-10 space-y-8">
+      <div>
+        <h1 className="text-3xl font-display font-bold">Live Auctions</h1>
+        <p className="text-muted-foreground">
+          Bid on verified listings with real-time price updates — Yaga-style haggle listings stay in the marketplace.
+        </p>
+      </div>
+
+      {loading ? (
+        <p className="text-muted-foreground">Loading auctions...</p>
+      ) : liveAuctions.length === 0 && endedAuctions.length === 0 ? (
+        <EmptyState
+          title="No auctions yet"
+          description="Sellers can enable auction mode when creating a listing from the seller dashboard."
+        />
+      ) : (
+        <>
+          {liveAuctions.length ? (
+            <section className="space-y-4">
+              <h2 className="text-xl font-semibold">Live now ({liveAuctions.length})</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {liveAuctions.map((item) => (
+                  <Card key={item.id} className="overflow-hidden">
+                    <Link to={`/product/${item.id}`} className="block h-44 bg-muted">
+                      <img src={item.image} alt={item.title} className="h-full w-full object-cover" />
+                    </Link>
+                    <CardContent className="p-4 space-y-2">
+                      <Link to={`/product/${item.id}`} className="font-semibold hover:text-primary">
+                        {item.title}
+                      </Link>
+                      <p className="text-sm text-muted-foreground">{item.seller}</p>
+                      <p className="text-lg font-bold">
+                        <Currency
+                          value={
+                            item.currentBid && item.currentBid > 0
+                              ? item.currentBid
+                              : minimumBid(item)
+                          }
+                        />
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.bidCount ?? 0} bids
+                        {item.auctionEndsAt
+                          ? ` • ends ${new Date(item.auctionEndsAt).toLocaleString('en-ZA')}`
+                          : ''}
+                      </p>
+                      <Button asChild className="w-full">
+                        <Link to={`/product/${item.id}`}>Place bid</Link>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {endedAuctions.length ? (
+            <section className="space-y-4">
+              <h2 className="text-xl font-semibold">Recently ended</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {endedAuctions.map((item) => (
+                  <Card key={item.id} className="overflow-hidden opacity-80">
+                    <CardContent className="p-4 space-y-2">
+                      <Link to={`/product/${item.id}`} className="font-semibold hover:text-primary">
+                        {item.title}
+                      </Link>
+                      <p className="text-sm text-muted-foreground">Final bid</p>
+                      <p className="text-lg font-bold">
+                        <Currency value={item.currentBid ?? item.startingBid ?? item.price} />
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }
@@ -681,6 +1048,7 @@ export function Jobs() {
 export function SellerDashboard() {
   const {
     sellerListings,
+    sellerStores,
     orders,
     payoutSummary,
     trustReports,
@@ -688,8 +1056,11 @@ export function SellerDashboard() {
     updateSellerListing,
     pauseSellerListing,
     generateListingDraft,
+    loadIncomingOffers,
+    respondToOffer,
   } = useApp();
   const [draftSeed, setDraftSeed] = useState('');
+  const [incomingOffers, setIncomingOffers] = useState<HaggleOffer[]>([]);
   const [form, setForm] = useState({
     title: '',
     category: 'Electronics',
@@ -697,7 +1068,17 @@ export function SellerDashboard() {
     inventory: 1,
     description: '',
     location: 'Cape Town',
+    saleMode: 'fixed' as 'fixed' | 'haggle' | 'auction',
+    haggleEnabled: false,
+    startingBid: 0,
+    bidIncrement: 50,
+    reservePrice: 0,
+    auctionDurationHours: 72,
   });
+
+  useEffect(() => {
+    void loadIncomingOffers().then(setIncomingOffers).catch(() => setIncomingOffers([]));
+  }, [loadIncomingOffers, sellerListings]);
 
   const sellerOrders = orders.filter((order) =>
     order.lines.some((line) => sellerListings.some((listing) => listing.id === line.productId))
@@ -709,7 +1090,12 @@ export function SellerDashboard() {
       toast.error('Listing title is required');
       return;
     }
-    await createSellerListing(form);
+    await createSellerListing({
+      ...form,
+      haggleEnabled: form.saleMode === 'haggle' ? true : form.haggleEnabled,
+      startingBid: form.saleMode === 'auction' ? form.startingBid || form.price : undefined,
+      reservePrice: form.saleMode === 'auction' && form.reservePrice > 0 ? form.reservePrice : undefined,
+    });
     setForm({
       title: '',
       category: 'Electronics',
@@ -717,6 +1103,12 @@ export function SellerDashboard() {
       inventory: 1,
       description: '',
       location: 'Cape Town',
+      saleMode: 'fixed',
+      haggleEnabled: false,
+      startingBid: 0,
+      bidIncrement: 50,
+      reservePrice: 0,
+      auctionDurationHours: 72,
     });
     toast.success('Draft listing created');
   };
@@ -765,6 +1157,48 @@ export function SellerDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-3">
+          <div>
+            <CardTitle>My storefronts</CardTitle>
+            <CardDescription>Business profiles linked to your seller account.</CardDescription>
+          </div>
+          <Button asChild size="sm">
+            <Link to="/store/create">Create storefront</Link>
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {sellerStores.length ? (
+            sellerStores.map((store) => (
+              <div
+                key={store.id}
+                className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <Link to={`/store/${store.id}`} className="font-medium hover:text-primary">
+                    {store.name}
+                  </Link>
+                  <p className="text-sm text-muted-foreground">
+                    {store.category} • {store.location}
+                  </p>
+                </div>
+                <Badge variant={store.status === 'active' ? 'secondary' : 'outline'}>
+                  {store.status ?? 'active'}
+                </Badge>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No storefront yet.{' '}
+              <Link to="/store/create" className="text-primary hover:underline">
+                Create one
+              </Link>{' '}
+              before publishing listings.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <Card className="lg:col-span-1">
@@ -828,6 +1262,68 @@ export function SellerDashboard() {
                 onChange={(event) => setForm((value) => ({ ...value, location: event.target.value }))}
                 placeholder="Location"
               />
+              <label className="text-sm md:col-span-2">
+                <span className="mb-1 block text-muted-foreground">Sale mode</span>
+                <select
+                  value={form.saleMode}
+                  onChange={(event) =>
+                    setForm((value) => ({
+                      ...value,
+                      saleMode: event.target.value as 'fixed' | 'haggle' | 'auction',
+                      haggleEnabled: event.target.value === 'haggle',
+                    }))
+                  }
+                  className="h-10 w-full rounded-md border border-input bg-background px-3"
+                >
+                  <option value="fixed">Fixed price (Buy now)</option>
+                  <option value="haggle">Haggle (buyers make offers)</option>
+                  <option value="auction">Online auction</option>
+                </select>
+              </label>
+              {form.saleMode === 'haggle' ? (
+                <p className="md:col-span-2 text-sm text-muted-foreground">
+                  Buyers can submit offers below your asking price. You accept, decline, or counter — like Yaga.
+                </p>
+              ) : null}
+              {form.saleMode === 'auction' ? (
+                <>
+                  <Input
+                    type="number"
+                    value={form.startingBid}
+                    onChange={(event) =>
+                      setForm((value) => ({ ...value, startingBid: Number(event.target.value) }))
+                    }
+                    placeholder="Starting bid"
+                  />
+                  <Input
+                    type="number"
+                    value={form.bidIncrement}
+                    onChange={(event) =>
+                      setForm((value) => ({ ...value, bidIncrement: Number(event.target.value) }))
+                    }
+                    placeholder="Bid increment"
+                  />
+                  <Input
+                    type="number"
+                    value={form.reservePrice}
+                    onChange={(event) =>
+                      setForm((value) => ({ ...value, reservePrice: Number(event.target.value) }))
+                    }
+                    placeholder="Reserve price (optional)"
+                  />
+                  <Input
+                    type="number"
+                    value={form.auctionDurationHours}
+                    onChange={(event) =>
+                      setForm((value) => ({
+                        ...value,
+                        auctionDurationHours: Number(event.target.value),
+                      }))
+                    }
+                    placeholder="Duration (hours)"
+                  />
+                </>
+              ) : null}
               <Button type="submit">Create draft</Button>
               <textarea
                 value={form.description}
@@ -858,6 +1354,7 @@ export function SellerDashboard() {
                 <p className="text-sm text-muted-foreground">
                   {listing.category} - R {listing.price.toLocaleString('en-ZA')} - risk {listing.riskScore}
                 </p>
+                <SaleModeBadge listing={listing} />
               </div>
               <Badge variant={listing.status === 'active' ? 'secondary' : 'outline'}>
                 {listing.status}
@@ -875,6 +1372,66 @@ export function SellerDashboard() {
               </Button>
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Incoming haggle offers</CardTitle>
+          <CardDescription>Review buyer offers and accept, decline, or counter.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {incomingOffers.length ? (
+            incomingOffers.map((offer) => (
+              <div key={offer.id} className="rounded-lg border border-border p-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium">
+                    {offer.listingTitle} — {offer.buyerName}
+                  </p>
+                  <Badge variant="outline">{offer.status}</Badge>
+                </div>
+                <p className="text-sm">
+                  Offer: <Currency value={offer.amount} />
+                  {offer.message ? (
+                    <span className="text-muted-foreground"> — {offer.message}</span>
+                  ) : null}
+                </p>
+                {offer.status === 'pending' ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        void respondToOffer(offer.id, 'accept')
+                          .then(() => loadIncomingOffers().then(setIncomingOffers))
+                          .then(() => toast.success('Offer accepted'))
+                          .catch((error) =>
+                            toast.error(error instanceof Error ? error.message : 'Unable to accept')
+                          );
+                      }}
+                    >
+                      Accept
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        void respondToOffer(offer.id, 'decline')
+                          .then(() => loadIncomingOffers().then(setIncomingOffers))
+                          .then(() => toast.success('Offer declined'))
+                          .catch((error) =>
+                            toast.error(error instanceof Error ? error.message : 'Unable to decline')
+                          );
+                      }}
+                    >
+                      Decline
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">No incoming offers yet.</p>
+          )}
         </CardContent>
       </Card>
 
@@ -1022,13 +1579,29 @@ export function Storefront() {
 
   return (
     <div className="container mx-auto px-4 py-10 space-y-6">
-      <QueryPageHeader
-        title="Business Storefronts"
-        description="Discover and compare verified business profiles."
-        query={query}
-        setQuery={setQuery}
-        placeholder="Search stores, category, location"
-      />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-display font-bold">Business Storefronts</h1>
+          <p className="text-muted-foreground">
+            Discover and compare verified business profiles.
+          </p>
+        </div>
+        <Button asChild>
+          <Link to="/store/create">Create storefront</Link>
+        </Button>
+      </div>
+      <form
+        className="max-w-xl"
+        onSubmit={(event) => {
+          event.preventDefault();
+        }}
+      >
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search stores, category, location"
+        />
+      </form>
       {loading ? (
         <p className="text-muted-foreground">Loading stores...</p>
       ) : items.length === 0 ? (
@@ -1036,7 +1609,12 @@ export function Storefront() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {items.map((item) => (
-            <Card key={item.id}>
+            <Card key={item.id} className="overflow-hidden">
+              {item.image ? (
+                <Link to={`/store/${item.id}`} className="block h-40 bg-muted">
+                  <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                </Link>
+              ) : null}
               <CardHeader>
                 <CardTitle>
                   <Link to={`/store/${item.id}`} className="hover:text-primary">
@@ -1046,7 +1624,10 @@ export function Storefront() {
                 <CardDescription>{item.location}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <Badge variant="outline">{item.category}</Badge>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">{item.category}</Badge>
+                  {item.verified ? <Badge variant="secondary">Verified</Badge> : null}
+                </div>
                 <p className="text-sm text-muted-foreground">{item.description}</p>
                 <div className="flex items-center justify-between text-sm">
                   <span>Rating: {item.rating}</span>

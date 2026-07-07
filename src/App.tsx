@@ -8,6 +8,7 @@ import { Home } from './pages/Home';
 import {
   Marketplace,
   ProductDetail,
+  Auctions,
   Services,
   Rentals,
   Jobs,
@@ -65,6 +66,7 @@ export function App() {
             <Route element={<AppLayout />}>
               <Route path="/" element={<Home />} />
               <Route path="/marketplace" element={<Marketplace />} />
+              <Route path="/auctions" element={<Auctions />} />
               <Route path="/flash-sales" element={<FlashSales />} />
               <Route path="/product/:id" element={<ProductDetail />} />
               <Route path="/services" element={<Services />} />
@@ -108,7 +110,14 @@ export function App() {
                 }
               />
               <Route path="/store" element={<Storefront />} />
-              <Route path="/store/create" element={<StoreCreate />} />
+              <Route
+                path="/store/create"
+                element={
+                  <ProtectedRoute roles={['seller', 'admin']}>
+                    <StoreCreate />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="/store/:id" element={<StoreDetail />} />
               <Route
                 path="/messages"

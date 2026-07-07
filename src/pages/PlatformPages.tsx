@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -138,25 +138,101 @@ export function PricingToolsPage() {
 }
 
 export function StoreCreate() {
-  const [storeName, setStoreName] = React.useState('');
+  const navigate = useNavigate();
+  const { user, createStorefront } = useApp();
+  const [form, setForm] = React.useState({
+    name: '',
+    category: '',
+    location: '',
+    description: '',
+    supportEmail: user?.email ?? '',
+  });
+  const [saving, setSaving] = React.useState(false);
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!form.name.trim() || !form.category.trim() || !form.location.trim()) {
+      toast.error('Store name, category, and location are required');
+      return;
+    }
+    if (form.description.trim().length < 10) {
+      toast.error('Description should be at least 10 characters');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const store = await createStorefront({
+        name: form.name.trim(),
+        category: form.category.trim(),
+        location: form.location.trim(),
+        description: form.description.trim(),
+        supportEmail: form.supportEmail.trim() || undefined,
+        status: 'active',
+      });
+      toast.success('Storefront published');
+      navigate(`/store/${store.id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to create storefront');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <PageShell
       title="Create Storefront"
-      description="Set up your business presence before publishing listings."
+      description="Set up your business presence on GridStore. Your storefront appears on /store once published."
     >
       <Card>
-        <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Input value={storeName} onChange={(event) => setStoreName(event.target.value)} placeholder="Store name" />
-          <Input placeholder="Business category" />
-          <Input placeholder="City or service area" />
-          <Input placeholder="Support email" />
-          <Button
-            className="md:col-span-2"
-            onClick={() => toast.success(`${storeName || 'Storefront'} draft created`)}
-          >
-            Save storefront draft
-          </Button>
+        <CardHeader>
+          <CardTitle>Business profile</CardTitle>
+          <CardDescription>
+            Linked to your seller account{user ? ` (${user.email})` : ''}. Listings can reference this store name.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form className="grid grid-cols-1 md:grid-cols-2 gap-3" onSubmit={submit}>
+            <Input
+              value={form.name}
+              onChange={(event) => setForm((value) => ({ ...value, name: event.target.value }))}
+              placeholder="Store name"
+              required
+            />
+            <Input
+              value={form.category}
+              onChange={(event) => setForm((value) => ({ ...value, category: event.target.value }))}
+              placeholder="Business category"
+              required
+            />
+            <Input
+              value={form.location}
+              onChange={(event) => setForm((value) => ({ ...value, location: event.target.value }))}
+              placeholder="City or service area"
+              required
+            />
+            <Input
+              type="email"
+              value={form.supportEmail}
+              onChange={(event) => setForm((value) => ({ ...value, supportEmail: event.target.value }))}
+              placeholder="Support email"
+            />
+            <textarea
+              value={form.description}
+              onChange={(event) => setForm((value) => ({ ...value, description: event.target.value }))}
+              className="md:col-span-2 min-h-28 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              placeholder="Describe your business, delivery areas, and what you sell"
+              required
+            />
+            <div className="md:col-span-2 flex flex-wrap gap-3">
+              <Button type="submit" disabled={saving}>
+                {saving ? 'Publishing...' : 'Publish storefront'}
+              </Button>
+              <Button type="button" variant="outline" asChild>
+                <Link to="/seller">Back to seller dashboard</Link>
+              </Button>
+            </div>
+          </form>
         </CardContent>
       </Card>
     </PageShell>
@@ -190,10 +266,27 @@ export function StoreDetail() {
 
   return (
     <PageShell title={store.name} description={store.description}>
+      {store.image ? (
+        <div className="mb-6 overflow-hidden rounded-xl border border-border">
+          <img src={store.image} alt={store.name} className="h-56 w-full object-cover" />
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <MetricCard title="Rating" value={String(store.rating)} detail={store.category} />
         <MetricCard title="Followers" value={store.followers.toLocaleString('en-ZA')} detail={store.location} />
-        <MetricCard title="Verification" value="Ready" detail="Business profile checks available" />
+        <MetricCard
+          title="Verification"
+          value={store.verified ? 'Verified' : 'Pending'}
+          detail={store.supportEmail ?? 'Business profile checks available'}
+        />
+      </div>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Button asChild>
+          <Link to={`/marketplace?q=${encodeURIComponent(store.name)}`}>View listings</Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to="/store">Browse all stores</Link>
+        </Button>
       </div>
     </PageShell>
   );

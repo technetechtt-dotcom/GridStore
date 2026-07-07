@@ -12,6 +12,12 @@ const listingSchema = z.object({
   inventory: z.number().int().nonnegative(),
   description: z.string().min(10),
   location: z.string().min(2),
+  saleMode: z.enum(['fixed', 'haggle', 'auction']).optional(),
+  haggleEnabled: z.boolean().optional(),
+  startingBid: z.number().nonnegative().optional(),
+  bidIncrement: z.number().positive().optional(),
+  reservePrice: z.number().nonnegative().optional(),
+  auctionDurationHours: z.number().int().positive().optional(),
 });
 
 listingsRouter.get('/', optionalAuth, (req: AuthenticatedRequest, res) => {

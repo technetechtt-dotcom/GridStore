@@ -200,8 +200,9 @@ export function Login() {
               <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
             </Button>
             <p className="text-xs text-center text-muted-foreground">
-              Demo API: <span className="font-medium">seller@gridstore.local</span> or{' '}
-              <span className="font-medium">buyer@gridstore.local</span> /{' '}
+              Demo API: <span className="font-medium">seller@gridstore.local</span>,{' '}
+              <span className="font-medium">buyer@gridstore.local</span>, or{' '}
+              <span className="font-medium">admin@gridstore.local</span> /{' '}
               <span className="font-medium">demo1234</span>
             </p>
             </form>

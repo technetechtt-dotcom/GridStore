@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { seedProducts } from '../data/seed.js';
 import { requireSql } from '../db/client.js';
 import { migrate } from '../db/migrate.js';
-import { createId, inferRoleFromEmail, nowLabel } from '../lib/ids.js';
+import { resolveSaleFields } from '../lib/listingSale.js';
 import { matchesQuery } from '../lib/search.js';
 import { signToken } from '../lib/tokens.js';
 import type {
@@ -75,7 +75,7 @@ function rowToStoredUser(row: UserRow): StoredUser {
   };
 }
 
-function rowToListing(row: ListingRow): SellerListing {
+function rowToListing(row: ListingRow & Record<string, unknown>): SellerListing {
   return {
     id: row.id,
     sellerId: row.seller_id,
@@ -93,6 +93,15 @@ function rowToListing(row: ListingRow): SellerListing {
     inventory: row.inventory,
     riskScore: row.risk_score,
     verified: row.verified,
+    saleMode: (row.sale_mode as SellerListing['saleMode']) ?? 'fixed',
+    haggleEnabled: Boolean(row.haggle_enabled),
+    startingBid: row.starting_bid != null ? Number(row.starting_bid) : undefined,
+    currentBid: row.current_bid != null ? Number(row.current_bid) : undefined,
+    bidIncrement: row.bid_increment != null ? Number(row.bid_increment) : undefined,
+    reservePrice: row.reserve_price != null ? Number(row.reserve_price) : undefined,
+    auctionEndsAt: row.auction_ends_at ? String(row.auction_ends_at) : undefined,
+    auctionStatus: (row.auction_status as SellerListing['auctionStatus']) ?? 'none',
+    bidCount: Number(row.bid_count ?? 0),
   };
 }
 
@@ -142,9 +151,33 @@ export class PostgresPlatformStore implements PlatformStore {
 
     if (this.users.size === 0) {
       await this.seedDemoData();
+    } else {
+      await this.ensureAdminUser();
     }
 
     this.ready = true;
+  }
+
+  private async ensureAdminUser() {
+    if (this.getUserByEmail('admin@gridstore.local')) return;
+
+    const db = requireSql();
+    const demoPassword = await bcrypt.hash('demo1234', 10);
+    const admin: StoredUser = {
+      id: 'user-demo-admin',
+      name: 'Demo Admin',
+      email: 'admin@gridstore.local',
+      role: 'admin',
+      verified: true,
+      passwordHash: demoPassword,
+    };
+
+    await db`
+      INSERT INTO gridstore_users (id, name, email, role, verified, password_hash)
+      VALUES (${admin.id}, ${admin.name}, ${admin.email}, ${admin.role}, ${admin.verified}, ${admin.passwordHash})
+      ON CONFLICT (email) DO NOTHING
+    `;
+    this.users.set(admin.id, admin);
   }
 
   private async seedDemoData() {
@@ -169,7 +202,16 @@ export class PostgresPlatformStore implements PlatformStore {
       passwordHash: demoPassword,
     };
 
-    for (const user of [seller, buyer]) {
+    const admin: StoredUser = {
+      id: 'user-demo-admin',
+      name: 'Demo Admin',
+      email: 'admin@gridstore.local',
+      role: 'admin',
+      verified: true,
+      passwordHash: demoPassword,
+    };
+
+    for (const user of [seller, buyer, admin]) {
       await db`
         INSERT INTO gridstore_users (id, name, email, role, verified, password_hash)
         VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash})
@@ -177,26 +219,80 @@ export class PostgresPlatformStore implements PlatformStore {
       this.users.set(user.id, user);
     }
 
-    this.listings = seedProducts.slice(0, 3).map((product, index) => ({
-      ...product,
-      sellerId: seller.id,
-      status: index === 2 ? 'paused' : 'active',
-      inventory: [8, 4, 2][index] ?? 1,
-      riskScore: [9, 12, 18][index] ?? 10,
-      verified: true,
-    }));
+    this.listings = seedProducts.slice(0, 3).map((product, index) => {
+      const base = {
+        ...product,
+        sellerId: seller.id,
+        status: (index === 2 ? 'paused' : 'active') as SellerListing['status'],
+        inventory: [8, 4, 2][index] ?? 1,
+        riskScore: [9, 12, 18][index] ?? 10,
+        verified: true,
+      };
+
+      if (index === 0) {
+        return {
+          ...base,
+          ...resolveSaleFields({
+            title: product.title,
+            category: product.category,
+            price: product.price,
+            inventory: base.inventory,
+            description: product.description,
+            location: product.location,
+            saleMode: 'auction',
+            startingBid: Math.round(product.price * 0.6),
+            bidIncrement: 100,
+            auctionDurationHours: 72,
+          }),
+        };
+      }
+
+      if (index === 1) {
+        return {
+          ...base,
+          ...resolveSaleFields({
+            title: product.title,
+            category: product.category,
+            price: product.price,
+            inventory: base.inventory,
+            description: product.description,
+            location: product.location,
+            saleMode: 'haggle',
+            haggleEnabled: true,
+          }),
+        };
+      }
+
+      return {
+        ...base,
+        ...resolveSaleFields({
+          title: product.title,
+          category: product.category,
+          price: product.price,
+          inventory: base.inventory,
+          description: product.description,
+          location: product.location,
+        }),
+      };
+    });
 
     for (const listing of this.listings) {
       await db`
         INSERT INTO gridstore_listings (
           id, seller_id, title, category, price, rating, reviews, seller, location,
-          badge, image, description, status, inventory, risk_score, verified
+          badge, image, description, status, inventory, risk_score, verified,
+          sale_mode, haggle_enabled, starting_bid, current_bid, bid_increment,
+          reserve_price, auction_ends_at, auction_status, bid_count
         ) VALUES (
           ${listing.id}, ${listing.sellerId}, ${listing.title}, ${listing.category},
           ${listing.price}, ${listing.rating}, ${listing.reviews}, ${listing.seller},
           ${listing.location}, ${listing.badge ?? null}, ${listing.image},
           ${listing.description}, ${listing.status}, ${listing.inventory},
-          ${listing.riskScore}, ${listing.verified}
+          ${listing.riskScore}, ${listing.verified}, ${listing.saleMode ?? 'fixed'},
+          ${listing.haggleEnabled ?? false}, ${listing.startingBid ?? null},
+          ${listing.currentBid ?? null}, ${listing.bidIncrement ?? null},
+          ${listing.reservePrice ?? null}, ${listing.auctionEndsAt ?? null},
+          ${listing.auctionStatus ?? 'none'}, ${listing.bidCount ?? 0}
         )
       `;
     }
@@ -344,6 +440,25 @@ export class PostgresPlatformStore implements PlatformStore {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  getOrder(userId: string, orderId: string) {
+    return this.orders.find((order) => order.id === orderId && order.userId === userId);
+  }
+
+  async updateOrderStatus(userId: string, orderId: string, status: Order['status']) {
+    const order = this.getOrder(userId, orderId);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+    order.status = status;
+
+    const db = requireSql();
+    await db`
+      UPDATE gridstore_orders SET status = ${status}
+      WHERE id = ${orderId} AND user_id = ${userId}
+    `;
+    return order;
+  }
+
   async createOrder(userId: string, input: CreateOrderInput): Promise<Order> {
     if (!input.lines.length) {
       throw new Error('Cart is empty');
@@ -455,19 +570,25 @@ export class PostgresPlatformStore implements PlatformStore {
       inventory: input.inventory,
       riskScore: Math.max(3, Math.min(35, Math.round(60 / Math.max(input.inventory, 1)))),
       verified,
+      ...resolveSaleFields(input),
     };
 
     const db = requireSql();
     await db`
       INSERT INTO gridstore_listings (
         id, seller_id, title, category, price, rating, reviews, seller, location,
-        badge, image, description, status, inventory, risk_score, verified
+        badge, image, description, status, inventory, risk_score, verified,
+        sale_mode, haggle_enabled, starting_bid, current_bid, bid_increment,
+        reserve_price, auction_ends_at, auction_status, bid_count
       ) VALUES (
         ${listing.id}, ${listing.sellerId}, ${listing.title}, ${listing.category},
         ${listing.price}, ${listing.rating}, ${listing.reviews}, ${listing.seller},
         ${listing.location}, ${listing.badge ?? null}, ${listing.image},
         ${listing.description}, ${listing.status}, ${listing.inventory},
-        ${listing.riskScore}, ${listing.verified}
+        ${listing.riskScore}, ${listing.verified}, ${listing.saleMode}, ${listing.haggleEnabled},
+        ${listing.startingBid ?? null}, ${listing.currentBid ?? null}, ${listing.bidIncrement ?? null},
+        ${listing.reservePrice ?? null}, ${listing.auctionEndsAt ?? null}, ${listing.auctionStatus},
+        ${listing.bidCount}
       )
     `;
 
@@ -494,6 +615,24 @@ export class PostgresPlatformStore implements PlatformStore {
     }
     if (input.description !== undefined) listing.description = input.description;
     if (input.location !== undefined) listing.location = input.location;
+    if (input.haggleEnabled !== undefined) {
+      listing.haggleEnabled = input.haggleEnabled;
+      listing.saleMode = input.haggleEnabled ? 'haggle' : listing.saleMode === 'haggle' ? 'fixed' : listing.saleMode;
+    }
+    if (input.saleMode !== undefined) {
+      Object.assign(
+        listing,
+        resolveSaleFields({
+          ...input,
+          price: listing.price,
+          title: listing.title,
+          category: listing.category,
+          inventory: listing.inventory,
+          description: listing.description,
+          location: listing.location,
+        })
+      );
+    }
 
     const db = requireSql();
     await db`
@@ -505,7 +644,16 @@ export class PostgresPlatformStore implements PlatformStore {
         inventory = ${listing.inventory},
         description = ${listing.description},
         location = ${listing.location},
-        status = ${listing.status}
+        status = ${listing.status},
+        sale_mode = ${listing.saleMode},
+        haggle_enabled = ${listing.haggleEnabled},
+        starting_bid = ${listing.startingBid ?? null},
+        current_bid = ${listing.currentBid ?? null},
+        bid_increment = ${listing.bidIncrement ?? null},
+        reserve_price = ${listing.reservePrice ?? null},
+        auction_ends_at = ${listing.auctionEndsAt ?? null},
+        auction_status = ${listing.auctionStatus},
+        bid_count = ${listing.bidCount}
       WHERE id = ${listingId} AND seller_id = ${userId}
     `;
 
@@ -529,6 +677,115 @@ export class PostgresPlatformStore implements PlatformStore {
       WHERE id = ${listingId} AND seller_id = ${userId}
     `;
 
+    return listing;
+  }
+
+  listAllUsers() {
+    return Array.from(this.users.values()).map((user) => this.toPublicUser(user));
+  }
+
+  listAllOrders() {
+    return this.orders.map((order) => {
+      const buyer = this.users.get(order.userId);
+      return {
+        ...order,
+        buyerName: buyer?.name ?? 'Unknown',
+        buyerEmail: buyer?.email ?? '',
+      };
+    });
+  }
+
+  listAllListingsAdmin() {
+    return [...this.listings];
+  }
+
+  async adminUpdateUser(userId: string, patch: { role?: UserRole; verified?: boolean }) {
+    const user = this.users.get(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    if (patch.role !== undefined) user.role = patch.role;
+    if (patch.verified !== undefined) user.verified = patch.verified;
+
+    const db = requireSql();
+    await db`
+      UPDATE gridstore_users
+      SET role = ${user.role}, verified = ${user.verified}
+      WHERE id = ${userId}
+    `;
+    return this.toPublicUser(user);
+  }
+
+  async adminUpdateListingStatus(listingId: string, status: SellerListing['status']) {
+    const listing = this.listings.find((item) => item.id === listingId);
+    if (!listing) {
+      throw new Error('Listing not found');
+    }
+    listing.status = status;
+
+    const db = requireSql();
+    await db`UPDATE gridstore_listings SET status = ${status} WHERE id = ${listingId}`;
+    return listing;
+  }
+
+  async adminUpdateOrder(
+    orderId: string,
+    patch: { status?: Order['status']; paymentStatus?: Order['paymentStatus'] }
+  ) {
+    const order = this.orders.find((item) => item.id === orderId);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+    if (patch.status !== undefined) order.status = patch.status;
+    if (patch.paymentStatus !== undefined) order.paymentStatus = patch.paymentStatus;
+
+    const db = requireSql();
+    await db`
+      UPDATE gridstore_orders
+      SET status = ${order.status}, payment_status = ${order.paymentStatus}
+      WHERE id = ${orderId}
+    `;
+
+    const buyer = this.users.get(order.userId);
+    return {
+      ...order,
+      buyerName: buyer?.name ?? 'Unknown',
+      buyerEmail: buyer?.email ?? '',
+    };
+  }
+
+  listAuctionListings() {
+    return this.listings.filter(
+      (listing) =>
+        listing.saleMode === 'auction' &&
+        listing.auctionStatus === 'live' &&
+        listing.status === 'active'
+    );
+  }
+
+  async updateListingTradeFields(
+    listingId: string,
+    patch: Partial<Pick<SellerListing, 'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode'>>
+  ) {
+    const listing = this.listings.find((item) => item.id === listingId);
+    if (!listing) throw new Error('Listing not found');
+    if (patch.currentBid !== undefined) listing.currentBid = patch.currentBid;
+    if (patch.bidCount !== undefined) listing.bidCount = patch.bidCount;
+    if (patch.auctionStatus !== undefined) listing.auctionStatus = patch.auctionStatus;
+    if (patch.haggleEnabled !== undefined) listing.haggleEnabled = patch.haggleEnabled;
+    if (patch.saleMode !== undefined) listing.saleMode = patch.saleMode;
+
+    const db = requireSql();
+    await db`
+      UPDATE gridstore_listings
+      SET
+        current_bid = ${listing.currentBid ?? null},
+        bid_count = ${listing.bidCount},
+        auction_status = ${listing.auctionStatus},
+        haggle_enabled = ${listing.haggleEnabled},
+        sale_mode = ${listing.saleMode}
+      WHERE id = ${listingId}
+    `;
     return listing;
   }
 

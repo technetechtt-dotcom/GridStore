@@ -57,6 +57,10 @@ export interface StoreProfile {
   followers: number;
   location: string;
   description: string;
+  supportEmail?: string;
+  status?: 'active' | 'draft' | 'paused';
+  verified?: boolean;
+  image?: string;
 }
 
 export interface AppUser {
@@ -116,6 +120,37 @@ export interface SellerListing extends Product {
   inventory: number;
   riskScore: number;
   verified: boolean;
+  saleMode?: 'fixed' | 'haggle' | 'auction';
+  haggleEnabled?: boolean;
+  startingBid?: number;
+  currentBid?: number;
+  bidIncrement?: number;
+  reservePrice?: number;
+  auctionEndsAt?: string;
+  auctionStatus?: 'none' | 'live' | 'ended';
+  bidCount?: number;
+}
+
+export interface HaggleOffer {
+  id: string;
+  listingId: string;
+  listingTitle: string;
+  buyerId: string;
+  buyerName: string;
+  amount: number;
+  message?: string;
+  status: 'pending' | 'accepted' | 'declined' | 'countered' | 'withdrawn';
+  counterAmount?: number;
+  createdAt: string;
+}
+
+export interface AuctionBid {
+  id: string;
+  listingId: string;
+  bidderId: string;
+  bidderName: string;
+  amount: number;
+  createdAt: string;
 }
 
 export interface BookingRequest {

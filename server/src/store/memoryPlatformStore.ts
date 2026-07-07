@@ -12,6 +12,7 @@ import type {
   UserRole,
 } from '../types.js';
 import type { CreateOrderInput, ListingInput, PlatformStore } from './storeTypes.js';
+import { resolveSaleFields } from '../lib/listingSale.js';
 
 export class MemoryPlatformStore implements PlatformStore {
   private users = new Map<string, StoredUser>();
@@ -43,14 +44,71 @@ export class MemoryPlatformStore implements PlatformStore {
       passwordHash: demoPassword,
     });
 
-    this.listings = seedProducts.slice(0, 3).map((product, index) => ({
-      ...product,
-      sellerId: seller.id,
-      status: index === 2 ? 'paused' : 'active',
-      inventory: [8, 4, 2][index] ?? 1,
-      riskScore: [9, 12, 18][index] ?? 10,
+    this.createStoredUser({
+      id: 'user-demo-admin',
+      name: 'Demo Admin',
+      email: 'admin@gridstore.local',
+      role: 'admin',
       verified: true,
-    }));
+      passwordHash: demoPassword,
+    });
+
+    this.listings = seedProducts.slice(0, 3).map((product, index) => {
+      const base = {
+        ...product,
+        sellerId: seller.id,
+        status: (index === 2 ? 'paused' : 'active') as SellerListing['status'],
+        inventory: [8, 4, 2][index] ?? 1,
+        riskScore: [9, 12, 18][index] ?? 10,
+        verified: true,
+      };
+
+      if (index === 0) {
+        return {
+          ...base,
+          ...resolveSaleFields({
+            title: product.title,
+            category: product.category,
+            price: product.price,
+            inventory: base.inventory,
+            description: product.description,
+            location: product.location,
+            saleMode: 'auction',
+            startingBid: Math.round(product.price * 0.6),
+            bidIncrement: 100,
+            auctionDurationHours: 72,
+          }),
+        };
+      }
+
+      if (index === 1) {
+        return {
+          ...base,
+          ...resolveSaleFields({
+            title: product.title,
+            category: product.category,
+            price: product.price,
+            inventory: base.inventory,
+            description: product.description,
+            location: product.location,
+            saleMode: 'haggle',
+            haggleEnabled: true,
+          }),
+        };
+      }
+
+      return {
+        ...base,
+        ...resolveSaleFields({
+          title: product.title,
+          category: product.category,
+          price: product.price,
+          inventory: base.inventory,
+          description: product.description,
+          location: product.location,
+        }),
+      };
+    });
   }
 
   private createStoredUser(user: StoredUser) {
@@ -167,6 +225,19 @@ export class MemoryPlatformStore implements PlatformStore {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  getOrder(userId: string, orderId: string) {
+    return this.orders.find((order) => order.id === orderId && order.userId === userId);
+  }
+
+  async updateOrderStatus(userId: string, orderId: string, status: Order['status']) {
+    const order = this.getOrder(userId, orderId);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+    order.status = status;
+    return order;
+  }
+
   async createOrder(userId: string, input: CreateOrderInput): Promise<Order> {
     if (!input.lines.length) {
       throw new Error('Cart is empty');
@@ -248,6 +319,7 @@ export class MemoryPlatformStore implements PlatformStore {
       inventory: input.inventory,
       riskScore: Math.max(3, Math.min(35, Math.round(60 / Math.max(input.inventory, 1)))),
       verified,
+      ...resolveSaleFields(input),
     };
     this.listings.unshift(listing);
     return listing;
@@ -272,6 +344,13 @@ export class MemoryPlatformStore implements PlatformStore {
     }
     if (input.description !== undefined) listing.description = input.description;
     if (input.location !== undefined) listing.location = input.location;
+    if (input.haggleEnabled !== undefined) {
+      listing.haggleEnabled = input.haggleEnabled;
+      listing.saleMode = input.haggleEnabled ? 'haggle' : listing.saleMode === 'haggle' ? 'fixed' : listing.saleMode;
+    }
+    if (input.saleMode !== undefined) {
+      Object.assign(listing, resolveSaleFields({ ...input, price: listing.price, title: listing.title, category: listing.category, inventory: listing.inventory, description: listing.description, location: listing.location }));
+    }
 
     return listing;
   }
@@ -284,6 +363,85 @@ export class MemoryPlatformStore implements PlatformStore {
       throw new Error('Listing not found');
     }
     listing.status = listing.status === 'paused' ? 'active' : 'paused';
+    return listing;
+  }
+
+  listAllUsers() {
+    return Array.from(this.users.values()).map((user) => this.toPublicUser(user));
+  }
+
+  listAllOrders() {
+    return this.orders.map((order) => {
+      const buyer = this.users.get(order.userId);
+      return {
+        ...order,
+        buyerName: buyer?.name ?? 'Unknown',
+        buyerEmail: buyer?.email ?? '',
+      };
+    });
+  }
+
+  listAllListingsAdmin() {
+    return [...this.listings];
+  }
+
+  async adminUpdateUser(userId: string, patch: { role?: UserRole; verified?: boolean }) {
+    const user = this.users.get(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    if (patch.role !== undefined) user.role = patch.role;
+    if (patch.verified !== undefined) user.verified = patch.verified;
+    return this.toPublicUser(user);
+  }
+
+  async adminUpdateListingStatus(listingId: string, status: SellerListing['status']) {
+    const listing = this.listings.find((item) => item.id === listingId);
+    if (!listing) {
+      throw new Error('Listing not found');
+    }
+    listing.status = status;
+    return listing;
+  }
+
+  async adminUpdateOrder(
+    orderId: string,
+    patch: { status?: Order['status']; paymentStatus?: Order['paymentStatus'] }
+  ) {
+    const order = this.orders.find((item) => item.id === orderId);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+    if (patch.status !== undefined) order.status = patch.status;
+    if (patch.paymentStatus !== undefined) order.paymentStatus = patch.paymentStatus;
+    const buyer = this.users.get(order.userId);
+    return {
+      ...order,
+      buyerName: buyer?.name ?? 'Unknown',
+      buyerEmail: buyer?.email ?? '',
+    };
+  }
+
+  listAuctionListings() {
+    return this.listings.filter(
+      (listing) =>
+        listing.saleMode === 'auction' &&
+        listing.auctionStatus === 'live' &&
+        listing.status === 'active'
+    );
+  }
+
+  async updateListingTradeFields(
+    listingId: string,
+    patch: Partial<Pick<SellerListing, 'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode'>>
+  ) {
+    const listing = this.listings.find((item) => item.id === listingId);
+    if (!listing) throw new Error('Listing not found');
+    if (patch.currentBid !== undefined) listing.currentBid = patch.currentBid;
+    if (patch.bidCount !== undefined) listing.bidCount = patch.bidCount;
+    if (patch.auctionStatus !== undefined) listing.auctionStatus = patch.auctionStatus;
+    if (patch.haggleEnabled !== undefined) listing.haggleEnabled = patch.haggleEnabled;
+    if (patch.saleMode !== undefined) listing.saleMode = patch.saleMode;
     return listing;
   }
 

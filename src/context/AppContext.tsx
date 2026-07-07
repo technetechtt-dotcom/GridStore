@@ -1,25 +1,43 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { products } from '../data/catalog';
 import {
+  apiClearNotifications,
+  apiCreateApplication,
+  apiCreateBooking,
   apiCreateListing,
   apiCreateOrder,
+  apiCreateReport,
+  apiCreateReservation,
+  apiCreateStore,
   apiGetActiveListings,
   apiGetMe,
   apiLogin,
   apiLogout,
+  apiMarkNotificationRead,
   apiOAuthLogin,
   apiRefundOrder,
   apiRequestPasswordReset,
+  apiSaveCart,
+  apiSaveWishlist,
+  apiSendMessage,
   apiSignup,
   apiToggleListingPause,
   apiUpdateListing,
   apiUpdateProfile,
+  apiUpdateStore,
   getAuthToken,
   isPlatformApiAvailable,
   setAuthToken,
   shouldUseLocalAuthFallback,
   syncPlatformData,
 } from '../services/platformApi';
+import {
+  apiGetIncomingOffers,
+  apiGetListingOffers,
+  apiPlaceBid,
+  apiRespondToOffer,
+  apiSubmitOffer,
+} from '../services/tradeApi';
 import { probeApiConnection, subscribeApiMode } from '../services/mockApi';
 import type {
   AppUser,
@@ -35,6 +53,9 @@ import type {
   SellerListing,
   TrustReport,
   UserRole,
+  HaggleOffer,
+  AuctionBid,
+  StoreProfile,
 } from '../types';
 
 interface CartLine {
@@ -47,6 +68,15 @@ interface CheckoutInput {
   paymentMethod: string;
 }
 
+interface StorefrontInput {
+  name: string;
+  category: string;
+  location: string;
+  description: string;
+  supportEmail?: string;
+  status?: 'active' | 'draft' | 'paused';
+}
+
 interface SellerListingInput {
   title: string;
   category: string;
@@ -54,6 +84,12 @@ interface SellerListingInput {
   inventory: number;
   description: string;
   location: string;
+  saleMode?: 'fixed' | 'haggle' | 'auction';
+  haggleEnabled?: boolean;
+  startingBid?: number;
+  bidIncrement?: number;
+  reservePrice?: number;
+  auctionDurationHours?: number;
 }
 
 interface AppContextValue {
@@ -66,6 +102,7 @@ interface AppContextValue {
   messageThreads: MessageThread[];
   orders: Order[];
   sellerListings: SellerListing[];
+  sellerStores: StoreProfile[];
   bookingRequests: BookingRequest[];
   rentalReservations: RentalReservation[];
   jobApplications: JobApplication[];
@@ -87,7 +124,18 @@ interface AppContextValue {
   createSellerListing: (input: SellerListingInput) => Promise<SellerListing>;
   updateSellerListing: (listingId: string, input: Partial<SellerListingInput>) => Promise<void>;
   pauseSellerListing: (listingId: string) => Promise<void>;
+  createStorefront: (input: StorefrontInput) => Promise<StoreProfile>;
+  updateStorefront: (storeId: string, input: Partial<StorefrontInput>) => Promise<StoreProfile>;
   generateListingDraft: (seed: string) => SellerListingInput;
+  submitOffer: (listingId: string, amount: number, message?: string) => Promise<HaggleOffer>;
+  respondToOffer: (
+    offerId: string,
+    action: 'accept' | 'decline' | 'counter',
+    counterAmount?: number
+  ) => Promise<HaggleOffer>;
+  loadListingOffers: (listingId: string) => Promise<HaggleOffer[]>;
+  loadIncomingOffers: () => Promise<HaggleOffer[]>;
+  placeBid: (listingId: string, amount: number) => Promise<{ bid: AuctionBid; listing: SellerListing }>;
   markNotificationRead: (id: string) => void;
   clearAllNotifications: () => void;
   sendMessage: (threadId: string, text: string, author?: 'buyer' | 'seller') => void;
@@ -106,6 +154,7 @@ interface PersistedState {
   messageThreads: MessageThread[];
   orders: Order[];
   sellerListings: SellerListing[];
+  sellerStores: StoreProfile[];
   bookingRequests: BookingRequest[];
   rentalReservations: RentalReservation[];
   jobApplications: JobApplication[];
@@ -163,6 +212,7 @@ const defaultState: PersistedState = {
   messageThreads: defaultThreads,
   orders: [],
   sellerListings: defaultSellerListings,
+  sellerStores: [],
   bookingRequests: [],
   rentalReservations: [],
   jobApplications: [],
@@ -186,6 +236,7 @@ function loadState(): PersistedState {
       messageThreads: parsed.messageThreads ?? defaultThreads,
       orders: parsed.orders ?? [],
       sellerListings: parsed.sellerListings ?? defaultSellerListings,
+      sellerStores: parsed.sellerStores ?? [],
       bookingRequests: parsed.bookingRequests ?? [],
       rentalReservations: parsed.rentalReservations ?? [],
       jobApplications: parsed.jobApplications ?? [],
@@ -244,6 +295,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [sellerListings, setSellerListings] = useState<SellerListing[]>(
     initialState.sellerListings
   );
+  const [sellerStores, setSellerStores] = useState<StoreProfile[]>(initialState.sellerStores);
   const [bookingRequests, setBookingRequests] = useState<BookingRequest[]>(
     initialState.bookingRequests
   );
@@ -264,10 +316,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       messageThreads: next.messageThreads ?? messageThreads,
       orders: next.orders ?? orders,
       sellerListings: next.sellerListings ?? sellerListings,
+      sellerStores: next.sellerStores ?? sellerStores,
       bookingRequests: next.bookingRequests ?? bookingRequests,
       rentalReservations: next.rentalReservations ?? rentalReservations,
       jobApplications: next.jobApplications ?? jobApplications,
       trustReports: next.trustReports ?? trustReports,
+    });
+  };
+
+  const applySyncedState = (synced: Awaited<ReturnType<typeof syncPlatformData>>, fallbackUser?: AppUser | null) => {
+    if (synced.user ?? fallbackUser) {
+      setUser(synced.user ?? fallbackUser ?? null);
+    }
+    setOrders(synced.orders);
+    if (synced.sellerListings.length) {
+      setSellerListings(synced.sellerListings);
+    }
+    setSellerStores(synced.sellerStores);
+    setCart(synced.cart);
+    setWishlistIds(synced.wishlistIds);
+    if (synced.notifications.length) {
+      setNotifications(synced.notifications);
+    }
+    if (synced.messageThreads.length) {
+      setMessageThreads(synced.messageThreads);
+    }
+    setBookingRequests(synced.bookingRequests);
+    setRentalReservations(synced.rentalReservations);
+    setJobApplications(synced.jobApplications);
+    setTrustReports(synced.trustReports);
+    persist({
+      user: synced.user ?? fallbackUser ?? user,
+      orders: synced.orders,
+      sellerListings: synced.sellerListings.length ? synced.sellerListings : sellerListings,
+      sellerStores: synced.sellerStores,
+      cart: synced.cart,
+      wishlistIds: synced.wishlistIds,
+      notifications: synced.notifications.length ? synced.notifications : notifications,
+      messageThreads: synced.messageThreads.length ? synced.messageThreads : messageThreads,
+      bookingRequests: synced.bookingRequests,
+      rentalReservations: synced.rentalReservations,
+      jobApplications: synced.jobApplications,
+      trustReports: synced.trustReports,
     });
   };
 
@@ -276,30 +366,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const synced = await syncPlatformData();
-      if (synced.user) {
-        setUser(synced.user);
-      }
-      setOrders(synced.orders);
-      if (synced.sellerListings.length) {
-        setSellerListings(synced.sellerListings);
-      } else if (!getAuthToken()) {
-        const activeListings = await apiGetActiveListings();
-        if (activeListings.length) {
-          setSellerListings(activeListings);
-        }
-      }
-      persist({
-        user: synced.user ?? user,
-        orders: synced.orders,
-        sellerListings: synced.sellerListings.length
-          ? synced.sellerListings
-          : sellerListings,
-      });
+      applySyncedState(synced);
     } catch {
       // Keep local persisted state when sync fails.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- persist mirrors current React state snapshot
-  }, [sellerListings, user]);
+  }, [sellerListings, user, notifications, messageThreads]);
 
   useEffect(() => {
     void probeApiConnection();
@@ -331,15 +403,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setUser(nextUser);
     try {
       const synced = await syncPlatformData();
-      setOrders(synced.orders);
-      if (synced.sellerListings.length) {
-        setSellerListings(synced.sellerListings);
-      }
-      persist({
-        user: synced.user ?? nextUser,
-        orders: synced.orders,
-        sellerListings: synced.sellerListings.length ? synced.sellerListings : sellerListings,
-      });
+      applySyncedState(synced, nextUser);
       return synced.user ?? nextUser;
     } catch {
       persist({ user: nextUser });
@@ -504,6 +568,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const next = { ...cart, [productId]: (cart[productId] ?? 0) + quantity };
     setCart(next);
     persist({ cart: next });
+    if (isPlatformApiAvailable() && user) {
+      void apiSaveCart(next).catch(() => undefined);
+    }
   };
 
   const updateCartQuantity = (productId: string, quantity: number) => {
@@ -515,6 +582,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     setCart(next);
     persist({ cart: next });
+    if (isPlatformApiAvailable() && user) {
+      void apiSaveCart(next).catch(() => undefined);
+    }
   };
 
   const removeFromCart = (productId: string) => {
@@ -522,6 +592,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     delete next[productId];
     setCart(next);
     persist({ cart: next });
+    if (isPlatformApiAvailable() && user) {
+      void apiSaveCart(next).catch(() => undefined);
+    }
   };
 
   const toggleWishlist = (productId: string) => {
@@ -530,6 +603,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       : [...wishlistIds, productId];
     setWishlistIds(next);
     persist({ wishlistIds: next });
+    if (isPlatformApiAvailable() && user) {
+      void apiSaveWishlist(next).catch(() => undefined);
+    }
   };
 
   const isInWishlist = (productId: string) => wishlistIds.includes(productId);
@@ -629,6 +705,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       inventory: input.inventory,
       riskScore: Math.max(3, Math.min(35, Math.round(60 / Math.max(input.inventory, 1)))),
       verified: Boolean(user?.verified),
+      saleMode: input.saleMode ?? (input.haggleEnabled ? 'haggle' : 'fixed'),
+      haggleEnabled: Boolean(input.haggleEnabled || input.saleMode === 'haggle'),
+      startingBid: input.saleMode === 'auction' ? (input.startingBid ?? input.price) : undefined,
+      currentBid: input.saleMode === 'auction' ? 0 : undefined,
+      bidIncrement: input.saleMode === 'auction' ? (input.bidIncrement ?? 50) : undefined,
+      reservePrice: input.saleMode === 'auction' ? input.reservePrice : undefined,
+      auctionEndsAt:
+        input.saleMode === 'auction'
+          ? new Date(Date.now() + (input.auctionDurationHours ?? 72) * 60 * 60 * 1000).toISOString()
+          : undefined,
+      auctionStatus: input.saleMode === 'auction' ? 'live' : 'none',
+      bidCount: 0,
     };
     const nextListings = [nextListing, ...sellerListings];
     setSellerListings(nextListings);
@@ -688,6 +776,68 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     persist({ sellerListings: nextListings });
   };
 
+  const createStorefront = async (input: StorefrontInput) => {
+    if (!user) throw new Error('Sign in as a seller to create a storefront');
+
+    if (isPlatformApiAvailable()) {
+      const store = await apiCreateStore(input);
+      const nextStores = [store, ...sellerStores.filter((item) => item.id !== store.id)];
+      setSellerStores(nextStores);
+      persist({ sellerStores: nextStores });
+      return store;
+    }
+
+    const store: StoreProfile = {
+      id: `store-${Date.now()}`,
+      name: input.name.trim(),
+      category: input.category.trim(),
+      location: input.location.trim(),
+      description: input.description.trim(),
+      supportEmail: input.supportEmail?.trim(),
+      status: input.status ?? 'active',
+      verified: Boolean(user.verified),
+      rating: 0,
+      followers: 0,
+      image:
+        'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=800',
+    };
+    const nextStores = [store, ...sellerStores];
+    setSellerStores(nextStores);
+    persist({ sellerStores: nextStores });
+    return store;
+  };
+
+  const updateStorefront = async (storeId: string, input: Partial<StorefrontInput>) => {
+    if (!user) throw new Error('Sign in as a seller to update a storefront');
+
+    if (isPlatformApiAvailable()) {
+      const store = await apiUpdateStore(storeId, input);
+      const nextStores = sellerStores.map((item) => (item.id === storeId ? store : item));
+      setSellerStores(nextStores);
+      persist({ sellerStores: nextStores });
+      return store;
+    }
+
+    const nextStores = sellerStores.map((item) =>
+      item.id === storeId
+        ? {
+            ...item,
+            ...input,
+            name: input.name?.trim() ?? item.name,
+            category: input.category?.trim() ?? item.category,
+            location: input.location?.trim() ?? item.location,
+            description: input.description?.trim() ?? item.description,
+            supportEmail: input.supportEmail?.trim() ?? item.supportEmail,
+          }
+        : item
+    );
+    const updated = nextStores.find((item) => item.id === storeId);
+    if (!updated) throw new Error('Store not found');
+    setSellerStores(nextStores);
+    persist({ sellerStores: nextStores });
+    return updated;
+  };
+
   const generateListingDraft = (seed: string): SellerListingInput => ({
     title: seed.trim() ? `${seed.trim()} - Verified Local Listing` : 'AI generated listing',
     category: seed.toLowerCase().includes('solar') ? 'Home & Garden' : 'Electronics',
@@ -696,7 +846,119 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     location: 'Cape Town',
     description:
       'AI draft: highlight condition, warranty, delivery coverage, proof of ownership, and clear return terms before publishing.',
+    saleMode: 'fixed',
+    haggleEnabled: false,
   });
+
+  const refreshListingInState = (listing: SellerListing) => {
+    const nextListings = sellerListings.map((item) => (item.id === listing.id ? listing : item));
+    setSellerListings(nextListings);
+    persist({ sellerListings: nextListings });
+  };
+
+  const submitOffer = async (listingId: string, amount: number, message?: string) => {
+    if (!user) throw new Error('Sign in to make an offer');
+    if (isPlatformApiAvailable()) {
+      return apiSubmitOffer({ listingId, amount, message });
+    }
+
+    const listing = sellerListings.find((item) => item.id === listingId);
+    if (!listing?.haggleEnabled && listing?.saleMode !== 'haggle') {
+      throw new Error('Haggle is not enabled for this listing');
+    }
+    if (amount >= listing.price) {
+      throw new Error('Offer must be below the asking price');
+    }
+
+    return {
+      id: `offer-${Date.now()}`,
+      listingId,
+      listingTitle: listing.title,
+      buyerId: user.id,
+      buyerName: user.name,
+      amount,
+      message,
+      status: 'pending' as const,
+      createdAt: new Date().toLocaleString('en-ZA'),
+    };
+  };
+
+  const respondToOffer = async (
+    offerId: string,
+    action: 'accept' | 'decline' | 'counter',
+    counterAmount?: number
+  ) => {
+    if (!user) throw new Error('Sign in as seller to respond');
+    if (isPlatformApiAvailable()) {
+      return apiRespondToOffer(offerId, action, counterAmount);
+    }
+
+    return {
+      id: offerId,
+      listingId: '',
+      listingTitle: '',
+      buyerId: '',
+      buyerName: '',
+      amount: 0,
+      status: action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'countered',
+      counterAmount,
+      createdAt: new Date().toLocaleString('en-ZA'),
+    } as HaggleOffer;
+  };
+
+  const loadListingOffers = async (listingId: string) => {
+    if (isPlatformApiAvailable() && user) {
+      return apiGetListingOffers(listingId);
+    }
+    return [];
+  };
+
+  const loadIncomingOffers = async () => {
+    if (isPlatformApiAvailable() && user) {
+      return apiGetIncomingOffers();
+    }
+    return [];
+  };
+
+  const placeBid = async (listingId: string, amount: number) => {
+    if (!user) throw new Error('Sign in to place a bid');
+    if (isPlatformApiAvailable()) {
+      const result = await apiPlaceBid(listingId, amount);
+      refreshListingInState(result.listing);
+      return result;
+    }
+
+    const listing = sellerListings.find((item) => item.id === listingId);
+    if (!listing || listing.saleMode !== 'auction') {
+      throw new Error('This listing is not an auction');
+    }
+
+    const minBid = (listing.currentBid ?? 0) > 0
+      ? (listing.currentBid ?? 0) + (listing.bidIncrement ?? 50)
+      : (listing.startingBid ?? listing.price);
+    if (amount < minBid) {
+      throw new Error(`Minimum bid is R ${minBid.toLocaleString('en-ZA')}`);
+    }
+
+    const updatedListing: SellerListing = {
+      ...listing,
+      currentBid: amount,
+      bidCount: (listing.bidCount ?? 0) + 1,
+    };
+    refreshListingInState(updatedListing);
+
+    return {
+      bid: {
+        id: `bid-${Date.now()}`,
+        listingId,
+        bidderId: user.id,
+        bidderName: user.name,
+        amount,
+        createdAt: new Date().toLocaleString('en-ZA'),
+      },
+      listing: updatedListing,
+    };
+  };
 
   const markNotificationRead = (id: string) => {
     const next = notifications.map((item) =>
@@ -704,12 +966,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
     setNotifications(next);
     persist({ notifications: next });
+    if (isPlatformApiAvailable() && user) {
+      void apiMarkNotificationRead(id).catch(() => undefined);
+    }
   };
 
   const clearAllNotifications = () => {
     const next = notifications.map((item) => ({ ...item, unread: false }));
     setNotifications(next);
     persist({ notifications: next });
+    if (isPlatformApiAvailable() && user) {
+      void apiClearNotifications().catch(() => undefined);
+    }
   };
 
   const sendMessage = (
@@ -746,6 +1014,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     setMessageThreads(nextThreads);
     persist({ messageThreads: nextThreads });
+
+    if (isPlatformApiAvailable() && user) {
+      void apiSendMessage(threadId, { text: cleanText, author }).catch(() => undefined);
+    }
   };
 
   const requestServiceBooking = (
@@ -754,21 +1026,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     provider: string,
     note: string
   ) => {
-    const nextRequests = [
-      {
-        id: `booking-${Date.now()}`,
+    const localRequest: BookingRequest = {
+      id: `booking-${Date.now()}`,
+      serviceId,
+      serviceTitle,
+      provider,
+      requestedDate: 'Next available',
+      note: note.trim() || 'Please send a quote and available times.',
+      status: 'requested',
+      createdAt: nowLabel(),
+    };
+
+    const applyLocal = (request: BookingRequest) => {
+      const nextRequests = [request, ...bookingRequests];
+      setBookingRequests(nextRequests);
+      persist({ bookingRequests: nextRequests });
+    };
+
+    if (isPlatformApiAvailable() && user) {
+      void apiCreateBooking({
         serviceId,
         serviceTitle,
         provider,
-        requestedDate: 'Next available',
-        note: note.trim() || 'Please send a quote and available times.',
-        status: 'requested' as const,
-        createdAt: nowLabel(),
-      },
-      ...bookingRequests,
-    ];
-    setBookingRequests(nextRequests);
-    persist({ bookingRequests: nextRequests });
+        note,
+      })
+        .then(applyLocal)
+        .catch(() => applyLocal(localRequest));
+      return;
+    }
+
+    applyLocal(localRequest);
   };
 
   const requestRentalReservation = (
@@ -777,20 +1064,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     startDate: string,
     endDate: string
   ) => {
-    const nextReservations = [
-      {
-        id: `rental-${Date.now()}`,
-        rentalId,
-        rentalTitle,
-        startDate,
-        endDate,
-        status: startDate && endDate ? ('requested' as const) : ('unavailable' as const),
-        createdAt: nowLabel(),
-      },
-      ...rentalReservations,
-    ];
-    setRentalReservations(nextReservations);
-    persist({ rentalReservations: nextReservations });
+    const localReservation: RentalReservation = {
+      id: `rental-${Date.now()}`,
+      rentalId,
+      rentalTitle,
+      startDate,
+      endDate,
+      status: startDate && endDate ? 'requested' : 'unavailable',
+      createdAt: nowLabel(),
+    };
+
+    const applyLocal = (reservation: RentalReservation) => {
+      const nextReservations = [reservation, ...rentalReservations];
+      setRentalReservations(nextReservations);
+      persist({ rentalReservations: nextReservations });
+    };
+
+    if (isPlatformApiAvailable() && user) {
+      void apiCreateReservation({ rentalId, rentalTitle, startDate, endDate })
+        .then(applyLocal)
+        .catch(() => applyLocal(localReservation));
+      return;
+    }
+
+    applyLocal(localReservation);
   };
 
   const submitJobApplication = (
@@ -799,20 +1096,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     applicantName: string,
     cvFileName: string
   ) => {
-    const nextApplications = [
-      {
-        id: `application-${Date.now()}`,
-        jobId,
-        jobTitle,
-        applicantName: applicantName.trim() || user?.name || 'Applicant',
-        cvFileName: cvFileName || 'profile-cv.pdf',
-        status: 'submitted' as const,
-        createdAt: nowLabel(),
-      },
-      ...jobApplications,
-    ];
-    setJobApplications(nextApplications);
-    persist({ jobApplications: nextApplications });
+    const localApplication: JobApplication = {
+      id: `application-${Date.now()}`,
+      jobId,
+      jobTitle,
+      applicantName: applicantName.trim() || user?.name || 'Applicant',
+      cvFileName: cvFileName || 'profile-cv.pdf',
+      status: 'submitted',
+      createdAt: nowLabel(),
+    };
+
+    const applyLocal = (application: JobApplication) => {
+      const nextApplications = [application, ...jobApplications];
+      setJobApplications(nextApplications);
+      persist({ jobApplications: nextApplications });
+    };
+
+    if (isPlatformApiAvailable() && user) {
+      void apiCreateApplication({ jobId, jobTitle, applicantName, cvFileName })
+        .then(applyLocal)
+        .catch(() => applyLocal(localApplication));
+      return;
+    }
+
+    applyLocal(localApplication);
   };
 
   const reportTrustIssue = (
@@ -820,19 +1127,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     targetId: string,
     reason: string
   ) => {
-    const nextReports = [
-      {
-        id: `report-${Date.now()}`,
-        targetType,
-        targetId,
-        reason: reason.trim() || 'Needs marketplace review',
-        status: 'open' as const,
-        createdAt: nowLabel(),
-      },
-      ...trustReports,
-    ];
-    setTrustReports(nextReports);
-    persist({ trustReports: nextReports });
+    const localReport: TrustReport = {
+      id: `report-${Date.now()}`,
+      targetType,
+      targetId,
+      reason: reason.trim() || 'Needs marketplace review',
+      status: 'open',
+      createdAt: nowLabel(),
+    };
+
+    const applyLocal = (report: TrustReport) => {
+      const nextReports = [report, ...trustReports];
+      setTrustReports(nextReports);
+      persist({ trustReports: nextReports });
+    };
+
+    if (isPlatformApiAvailable() && user) {
+      void apiCreateReport({ targetType, targetId, reason })
+        .then(applyLocal)
+        .catch(() => applyLocal(localReport));
+      return;
+    }
+
+    applyLocal(localReport);
   };
 
   const updateProfile = async (input: { name: string; email: string }) => {
@@ -885,6 +1202,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         messageThreads,
         orders,
         sellerListings,
+        sellerStores,
         bookingRequests,
         rentalReservations,
         jobApplications,
@@ -906,7 +1224,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         createSellerListing,
         updateSellerListing,
         pauseSellerListing,
+        createStorefront,
+        updateStorefront,
         generateListingDraft,
+        submitOffer,
+        respondToOffer,
+        loadListingOffers,
+        loadIncomingOffers,
+        placeBid,
         markNotificationRead,
         clearAllNotifications,
         sendMessage,

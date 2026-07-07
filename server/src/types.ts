@@ -53,6 +53,10 @@ export interface StoreProfile {
   followers: number;
   location: string;
   description: string;
+  supportEmail?: string;
+  status?: 'active' | 'draft' | 'paused';
+  verified?: boolean;
+  image?: string;
 }
 
 export type UserRole = 'buyer' | 'seller' | 'moderator' | 'admin';
@@ -95,8 +99,114 @@ export interface SellerListing extends Product {
   inventory: number;
   riskScore: number;
   verified: boolean;
+  saleMode: 'fixed' | 'haggle' | 'auction';
+  haggleEnabled: boolean;
+  startingBid?: number;
+  currentBid?: number;
+  bidIncrement?: number;
+  reservePrice?: number;
+  auctionEndsAt?: string;
+  auctionStatus: 'none' | 'live' | 'ended';
+  bidCount: number;
+}
+
+export interface HaggleOffer {
+  id: string;
+  listingId: string;
+  listingTitle: string;
+  buyerId: string;
+  buyerName: string;
+  amount: number;
+  message?: string;
+  status: 'pending' | 'accepted' | 'declined' | 'countered' | 'withdrawn';
+  counterAmount?: number;
+  createdAt: string;
+}
+
+export interface AuctionBid {
+  id: string;
+  listingId: string;
+  bidderId: string;
+  bidderName: string;
+  amount: number;
+  createdAt: string;
 }
 
 export interface StoredUser extends AppUser {
   passwordHash: string;
+}
+
+export interface NotificationItem {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: string;
+  unread: boolean;
+}
+
+export interface MessageItem {
+  id: string;
+  author: 'buyer' | 'seller';
+  text: string;
+  createdAt: string;
+}
+
+export interface MessageThread {
+  id: string;
+  title: string;
+  participant: string;
+  messages: MessageItem[];
+}
+
+export interface BookingRequest {
+  id: string;
+  userId: string;
+  serviceId: string;
+  serviceTitle: string;
+  provider: string;
+  requestedDate: string;
+  note: string;
+  status: 'requested' | 'quoted' | 'confirmed';
+  createdAt: string;
+}
+
+export interface RentalReservation {
+  id: string;
+  userId: string;
+  rentalId: string;
+  rentalTitle: string;
+  startDate: string;
+  endDate: string;
+  status: 'requested' | 'confirmed' | 'unavailable';
+  createdAt: string;
+}
+
+export interface JobApplication {
+  id: string;
+  userId: string;
+  jobId: string;
+  jobTitle: string;
+  applicantName: string;
+  cvFileName: string;
+  status: 'submitted' | 'reviewing' | 'shortlisted';
+  createdAt: string;
+}
+
+export interface TrustReport {
+  id: string;
+  userId: string;
+  targetType: 'listing' | 'user' | 'order';
+  targetId: string;
+  reason: string;
+  status: 'open' | 'in_review' | 'resolved';
+  createdAt: string;
+}
+
+export interface AdminStats {
+  totalUsers: number;
+  totalOrders: number;
+  totalListings: number;
+  openReports: number;
+  pendingBookings: number;
+  revenueTotal: number;
 }

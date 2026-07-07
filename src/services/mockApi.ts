@@ -217,6 +217,13 @@ function normalizeStore(row: Record<string, unknown>): StoreProfile {
     followers: numberValue(row.followers),
     location: snakeValue(row.location),
     description: snakeValue(row.description),
+    supportEmail:
+      row.supportEmail != null || row.support_email != null
+        ? snakeValue(row.supportEmail ?? row.support_email)
+        : undefined,
+    status: (row.status as StoreProfile['status']) ?? 'active',
+    verified: Boolean(row.verified),
+    image: row.image ? snakeValue(row.image) : undefined,
   };
 }
 
