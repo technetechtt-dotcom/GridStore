@@ -1,0 +1,275 @@
+import type { Job, Product, Rental, Service, StoreProfile } from '../types';
+
+export const products: Product[] = [
+  {
+    id: 'prod-sony-a7iv',
+    title: 'Sony Alpha a7 IV Mirrorless Camera',
+    category: 'Electronics',
+    price: 45999,
+    rating: 4.9,
+    reviews: 128,
+    seller: 'CameraWorld ZA',
+    location: 'Cape Town',
+    badge: 'Top Rated',
+    image:
+      'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&q=80&w=800',
+    description: '33MP full-frame camera body with fast autofocus and 4K video.',
+  },
+  {
+    id: 'prod-macbook-m3',
+    title: 'MacBook Pro M3 Max 16"',
+    category: 'Electronics',
+    price: 74999,
+    rating: 5,
+    reviews: 84,
+    seller: 'iStore Verified',
+    location: 'Johannesburg',
+    badge: 'Trending',
+    image:
+      'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&q=80&w=800',
+    description: 'High-performance laptop for creators, developers, and studios.',
+  },
+  {
+    id: 'prod-aeron-chair',
+    title: 'Herman Miller Aeron Chair',
+    category: 'Home & Office',
+    price: 22500,
+    rating: 4.8,
+    reviews: 312,
+    seller: 'ErgoOffice',
+    location: 'Durban',
+    badge: 'Almost Gone',
+    image:
+      'https://images.unsplash.com/photo-1505843490538-5133c6c7d0e1?auto=format&fit=crop&q=80&w=800',
+    description: 'Iconic ergonomic office chair with advanced posture support.',
+  },
+  {
+    id: 'prod-dji-mini4',
+    title: 'DJI Mini 4 Pro Drone',
+    category: 'Electronics',
+    price: 18999,
+    rating: 4.7,
+    reviews: 95,
+    seller: 'DroneTech',
+    location: 'Pretoria',
+    badge: 'New',
+    image:
+      'https://images.unsplash.com/photo-1507582020474-9a35b7d455d9?auto=format&fit=crop&q=80&w=800',
+    description: 'Lightweight 4K drone with obstacle sensing and long battery life.',
+  },
+  {
+    id: 'prod-toyota-rav4',
+    title: '2021 Toyota RAV4 Hybrid',
+    category: 'Vehicles',
+    price: 565000,
+    rating: 4.6,
+    reviews: 44,
+    seller: 'AutoHub',
+    location: 'Johannesburg',
+    image:
+      'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&q=80&w=800',
+    description: 'Reliable SUV with excellent fuel efficiency and full service history.',
+  },
+  {
+    id: 'prod-solar-kit',
+    title: '5kW Solar Inverter + Battery Kit',
+    category: 'Home & Garden',
+    price: 38999,
+    rating: 4.8,
+    reviews: 221,
+    seller: 'PowerSmart',
+    location: 'Port Elizabeth',
+    image:
+      'https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&q=80&w=800',
+    description: 'Load-shedding ready power bundle with installer support.',
+  },
+  {
+    id: 'prod-fifine-mic',
+    title: 'Fifine AM8 Dynamic Mic',
+    category: 'Electronics',
+    price: 1299,
+    rating: 4.8,
+    reviews: 156,
+    seller: 'AudioTech',
+    location: 'Johannesburg',
+    badge: 'Top Rated',
+    image:
+      'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&q=80&w=800',
+    description: 'USB/XLR dynamic microphone for streaming, podcasting, and voice work.',
+  },
+  {
+    id: 'prod-audio-m20x',
+    title: 'Audio-Technica M20x',
+    category: 'Electronics',
+    price: 1150,
+    rating: 4.7,
+    reviews: 203,
+    seller: 'SoundGear',
+    location: 'Cape Town',
+    image:
+      'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&q=80&w=800',
+    description: 'Closed-back studio headphones with accurate monitoring for creators.',
+  },
+  {
+    id: 'prod-linen-blazer',
+    title: 'Tailored Linen Blazer',
+    category: 'Fashion',
+    price: 1899,
+    rating: 4.6,
+    reviews: 74,
+    seller: 'Cape Clothier',
+    location: 'Cape Town',
+    badge: 'New Season',
+    image:
+      'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&q=80&w=800',
+    description: 'Lightweight linen blazer for smart casual and office wear.',
+  },
+  {
+    id: 'prod-running-sneakers',
+    title: 'Performance Running Sneakers',
+    category: 'Fashion',
+    price: 2499,
+    rating: 4.5,
+    reviews: 112,
+    seller: 'StrideZA',
+    location: 'Johannesburg',
+    image:
+      'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=800',
+    description: 'Breathable daily trainers with cushioned support for road and gym use.',
+  },
+];
+
+export const services: Service[] = [
+  {
+    id: 'svc-photo',
+    title: 'Professional Event Photography',
+    provider: 'Sarah Jenkins',
+    category: 'Photography',
+    priceLabel: 'From R1,500/hr',
+    rating: 4.9,
+    location: 'Cape Town',
+    image:
+      'https://images.unsplash.com/photo-1554048612-b6a8a4099446?auto=format&fit=crop&q=80&w=800',
+    description: 'Weddings, private events, and brand shoots with fast turnaround.',
+  },
+  {
+    id: 'svc-web-dev',
+    title: 'Full Stack Web Development',
+    provider: 'TechFlow Agency',
+    category: 'Software',
+    priceLabel: 'From R850/hr',
+    rating: 5,
+    location: 'Remote',
+    image:
+      'https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&q=80&w=800',
+    description: 'Production-ready web apps, dashboards, and e-commerce builds.',
+  },
+  {
+    id: 'svc-renovation',
+    title: 'Home Renovation & Design',
+    provider: 'BuildRight Co.',
+    category: 'Home Services',
+    priceLabel: 'Custom Quote',
+    rating: 4.8,
+    location: 'Johannesburg',
+    image:
+      'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&q=80&w=800',
+    description: 'Renovations, interior upgrades, and project-managed delivery.',
+  },
+];
+
+export const rentals: Rental[] = [
+  {
+    id: 'rnt-bmw',
+    title: 'BMW X3 Rental',
+    owner: 'Urban Wheels',
+    category: 'Vehicles',
+    dailyRate: 1450,
+    location: 'Cape Town',
+    image:
+      'https://images.unsplash.com/photo-1502877338535-766e1452684a?auto=format&fit=crop&q=80&w=800',
+    description: 'Luxury SUV rental with insurance and roadside support included.',
+  },
+  {
+    id: 'rnt-camera-kit',
+    title: 'Cinema Camera Kit',
+    owner: 'Frame House',
+    category: 'Equipment',
+    dailyRate: 2200,
+    location: 'Johannesburg',
+    image:
+      'https://images.unsplash.com/photo-1495707902641-75cac588d2e9?auto=format&fit=crop&q=80&w=800',
+    description: 'Camera body, lenses, tripod and audio gear for production days.',
+  },
+  {
+    id: 'rnt-apartment',
+    title: 'Sea Point Studio Apartment',
+    owner: 'CapeStay',
+    category: 'Property',
+    dailyRate: 950,
+    location: 'Cape Town',
+    image:
+      'https://images.unsplash.com/photo-1493809842364-78817add7ffb?auto=format&fit=crop&q=80&w=800',
+    description: 'Fully furnished short stay apartment near shops and beachfront.',
+  },
+];
+
+export const jobs: Job[] = [
+  {
+    id: 'job-fs-dev',
+    title: 'Senior Full Stack Developer',
+    company: 'GridCore Labs',
+    location: 'Remote',
+    salaryLabel: 'R80k - R110k / month',
+    type: 'Full-time',
+    description: 'Build high-scale marketplace features with TypeScript and React.',
+  },
+  {
+    id: 'job-sales',
+    title: 'Marketplace Sales Specialist',
+    company: 'TradeWave',
+    location: 'Johannesburg',
+    salaryLabel: 'R35k - R50k / month + commission',
+    type: 'Full-time',
+    description: 'Help sellers onboard and optimize listings for conversion.',
+  },
+  {
+    id: 'job-designer',
+    title: 'Product Designer',
+    company: 'Bright Pixel',
+    location: 'Cape Town',
+    salaryLabel: 'R55k - R75k / month',
+    type: 'Hybrid',
+    description: 'Design buyer and seller experiences across web and mobile.',
+  },
+];
+
+export const stores: StoreProfile[] = [
+  {
+    id: 'store-cameraworld',
+    name: 'CameraWorld ZA',
+    category: 'Electronics',
+    rating: 4.9,
+    followers: 4812,
+    location: 'Cape Town',
+    description: 'Premium cameras, lenses and creator gear with local support.',
+  },
+  {
+    id: 'store-buildright',
+    name: 'BuildRight Pro',
+    category: 'Home Services',
+    rating: 4.8,
+    followers: 2294,
+    location: 'Johannesburg',
+    description: 'Trusted construction and renovation service marketplace store.',
+  },
+  {
+    id: 'store-powersmart',
+    name: 'PowerSmart Energy',
+    category: 'Solar',
+    rating: 4.7,
+    followers: 3190,
+    location: 'Port Elizabeth',
+    description: 'Load-shedding and backup power solutions for homes and SMEs.',
+  },
+];
