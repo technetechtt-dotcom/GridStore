@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
-import { platformStore } from '../store/platformStore.js';
+import { platformStore } from '../store/index.js';
 
 export const ordersRouter = Router();
 
@@ -26,7 +26,7 @@ ordersRouter.get('/', (req: AuthenticatedRequest, res) => {
   res.json(orders);
 });
 
-ordersRouter.post('/', (req: AuthenticatedRequest, res) => {
+ordersRouter.post('/', async (req: AuthenticatedRequest, res) => {
   const parsed = createOrderSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid order payload', details: parsed.error.flatten() });
@@ -34,7 +34,7 @@ ordersRouter.post('/', (req: AuthenticatedRequest, res) => {
   }
 
   try {
-    const order = platformStore.createOrder(req.user!.id, parsed.data);
+    const order = await platformStore.createOrder(req.user!.id, parsed.data);
     res.status(201).json(stripUserId(order));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to create order';
@@ -42,9 +42,9 @@ ordersRouter.post('/', (req: AuthenticatedRequest, res) => {
   }
 });
 
-ordersRouter.post('/:id/refund', (req: AuthenticatedRequest, res) => {
+ordersRouter.post('/:id/refund', async (req: AuthenticatedRequest, res) => {
   try {
-    const order = platformStore.refundOrder(req.user!.id, req.params.id);
+    const order = await platformStore.refundOrder(req.user!.id, req.params.id);
     res.json(stripUserId(order));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to refund order';

@@ -4,6 +4,7 @@ import {
   apiCreateListing,
   apiCreateOrder,
   apiGetActiveListings,
+  apiGetMe,
   apiLogin,
   apiLogout,
   apiOAuthLogin,
@@ -15,9 +16,11 @@ import {
   apiUpdateProfile,
   getAuthToken,
   isPlatformApiAvailable,
+  setAuthToken,
+  shouldUseLocalAuthFallback,
   syncPlatformData,
 } from '../services/platformApi';
-import { subscribeApiMode } from '../services/mockApi';
+import { probeApiConnection, subscribeApiMode } from '../services/mockApi';
 import type {
   AppUser,
   BookingRequest,
@@ -299,12 +302,118 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [sellerListings, user]);
 
   useEffect(() => {
+    void probeApiConnection();
     return subscribeApiMode((mode) => {
       if (mode === 'live') {
         void refreshFromApi();
       }
     });
   }, [refreshFromApi]);
+
+  useEffect(() => {
+    void (async () => {
+      const token = getAuthToken();
+      if (!token) return;
+      try {
+        const me = await apiGetMe();
+        setUser(me);
+        persist({ user: me });
+      } catch {
+        setAuthToken(null);
+        setUser(null);
+        persist({ user: null });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restore session once on mount
+  }, []);
+
+  const completeAuth = async (nextUser: AppUser) => {
+    setUser(nextUser);
+    try {
+      const synced = await syncPlatformData();
+      setOrders(synced.orders);
+      if (synced.sellerListings.length) {
+        setSellerListings(synced.sellerListings);
+      }
+      persist({
+        user: synced.user ?? nextUser,
+        orders: synced.orders,
+        sellerListings: synced.sellerListings.length ? synced.sellerListings : sellerListings,
+      });
+      return synced.user ?? nextUser;
+    } catch {
+      persist({ user: nextUser });
+      return nextUser;
+    }
+  };
+
+  const loginLocal = async (email: string, password: string, role: UserRole = 'buyer') => {
+    if (password.length < 6) {
+      throw new Error('Password must be at least 6 characters');
+    }
+    const nextUser: AppUser = {
+      id: `user-${Date.now()}`,
+      name: buildDisplayNameFromEmail(email),
+      email,
+      role: inferRoleFromEmail(email, role),
+      sessionToken: createSessionToken(),
+      verified: true,
+    };
+    setUser(nextUser);
+    persist({ user: nextUser });
+    return nextUser;
+  };
+
+  const signupLocal = async (
+    name: string,
+    email: string,
+    password: string,
+    role: UserRole = 'buyer'
+  ) => {
+    if (password.length < 8) {
+      throw new Error('Password must be at least 8 characters');
+    }
+    const nextUser: AppUser = {
+      id: `user-${Date.now()}`,
+      name,
+      email,
+      role,
+      sessionToken: createSessionToken(),
+      verified: false,
+    };
+    setUser(nextUser);
+    persist({ user: nextUser });
+    return nextUser;
+  };
+
+  const login = async (email: string, password: string, role: UserRole = 'buyer') => {
+    try {
+      const nextUser = await apiLogin(email, password, role);
+      return completeAuth(nextUser);
+    } catch (error) {
+      if (!shouldUseLocalAuthFallback(error)) {
+        throw error;
+      }
+      return loginLocal(email, password, role);
+    }
+  };
+
+  const signup = async (
+    name: string,
+    email: string,
+    password: string,
+    role: UserRole = 'buyer'
+  ) => {
+    try {
+      const nextUser = await apiSignup(name, email, password, role);
+      return completeAuth(nextUser);
+    } catch (error) {
+      if (!shouldUseLocalAuthFallback(error)) {
+        throw error;
+      }
+      return signupLocal(name, email, password, role);
+    }
+  };
 
   const cartLines = useMemo(
     () =>
@@ -329,88 +438,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [cartLines]
   );
 
-  const login = async (email: string, password: string, role: UserRole = 'buyer') => {
-    if (isPlatformApiAvailable()) {
-      const nextUser = await apiLogin(email, password, role);
-      setUser(nextUser);
-      const synced = await syncPlatformData();
-      setOrders(synced.orders);
-      setSellerListings(
-        synced.sellerListings.length ? synced.sellerListings : sellerListings
-      );
-      persist({
-        user: nextUser,
-        orders: synced.orders,
-        sellerListings: synced.sellerListings.length
-          ? synced.sellerListings
-          : sellerListings,
-      });
-      return nextUser;
-    }
-
-    if (password.length < 6) {
-      throw new Error('Password must be at least 6 characters');
-    }
-    const nextUser: AppUser = {
-      id: `user-${Date.now()}`,
-      name: buildDisplayNameFromEmail(email),
-      email,
-      role: inferRoleFromEmail(email, role),
-      sessionToken: createSessionToken(),
-      verified: true,
-    };
-    setUser(nextUser);
-    persist({ user: nextUser });
-    return nextUser;
-  };
-
-  const signup = async (
-    name: string,
-    email: string,
-    password: string,
-    role: UserRole = 'buyer'
-  ) => {
-    if (isPlatformApiAvailable()) {
-      const nextUser = await apiSignup(name, email, password, role);
-      setUser(nextUser);
-      const synced = await syncPlatformData();
-      setOrders(synced.orders);
-      setSellerListings(
-        synced.sellerListings.length ? synced.sellerListings : sellerListings
-      );
-      persist({
-        user: nextUser,
-        orders: synced.orders,
-        sellerListings: synced.sellerListings.length
-          ? synced.sellerListings
-          : sellerListings,
-      });
-      return nextUser;
-    }
-
-    if (password.length < 8) {
-      throw new Error('Password must be at least 8 characters');
-    }
-    const nextUser: AppUser = {
-      id: `user-${Date.now()}`,
-      name,
-      email,
-      role,
-      sessionToken: createSessionToken(),
-      verified: false,
-    };
-    setUser(nextUser);
-    persist({ user: nextUser });
-    return nextUser;
-  };
-
   const requestPasswordReset = async (email: string) => {
     if (!email.includes('@')) {
       throw new Error('Enter a valid email address');
     }
 
     if (isPlatformApiAvailable()) {
-      await apiRequestPasswordReset(email);
+      try {
+        await apiRequestPasswordReset(email);
+      } catch (error) {
+        if (!shouldUseLocalAuthFallback(error)) {
+          throw error;
+        }
+      }
     }
 
     const nextNotifications = [
@@ -430,22 +470,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const oauthLogin = async (provider: 'google' | 'github', role: UserRole = 'buyer') => {
-    if (isPlatformApiAvailable()) {
+    try {
       const nextUser = await apiOAuthLogin(provider, role);
-      setUser(nextUser);
-      const synced = await syncPlatformData();
-      setOrders(synced.orders);
-      setSellerListings(
-        synced.sellerListings.length ? synced.sellerListings : sellerListings
-      );
-      persist({
-        user: nextUser,
-        orders: synced.orders,
-        sellerListings: synced.sellerListings.length
-          ? synced.sellerListings
-          : sellerListings,
-      });
-      return nextUser;
+      return completeAuth(nextUser);
+    } catch (error) {
+      if (!shouldUseLocalAuthFallback(error)) {
+        throw error;
+      }
     }
 
     const nextUser: AppUser = {
@@ -462,9 +493,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    if (isPlatformApiAvailable()) {
-      void apiLogout();
-    }
+    void apiLogout().catch(() => {
+      setAuthToken(null);
+    });
     setUser(null);
     persist({ user: null });
   };

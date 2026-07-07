@@ -51,6 +51,29 @@ export function isPlatformApiAvailable() {
   return getApiMode() === 'live';
 }
 
+/** When true, auth falls back to local demo login instead of surfacing the API error. */
+export function shouldUseLocalAuthFallback(error: unknown) {
+  if (getApiMode() === 'demo') return true;
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  if (message.includes('failed to fetch') || message.includes('network') || message.includes('abort')) {
+    return true;
+  }
+  if (message.includes('404') || message.includes('not found')) {
+    return true;
+  }
+  return false;
+}
+
+export async function probeAuthApi() {
+  try {
+    await platformFetch<{ status: string }>('/health', { auth: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function platformFetch<T>(
   path: string,
   options: RequestInit & { query?: QueryParams; auth?: boolean } = {}

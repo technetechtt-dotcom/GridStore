@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
-import { platformStore } from '../store/platformStore.js';
+import { platformStore } from '../store/index.js';
 
 export const authRouter = Router();
 
@@ -77,15 +77,19 @@ authRouter.post('/signup', async (req, res) => {
   }
 });
 
-authRouter.post('/oauth', (req, res) => {
+authRouter.post('/oauth', async (req, res) => {
   const parsed = oauthSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid OAuth payload', details: parsed.error.flatten() });
     return;
   }
 
-  const user = platformStore.oauthLogin(parsed.data.provider, parsed.data.role ?? 'buyer');
-  res.json({ user });
+  try {
+    const user = await platformStore.oauthLogin(parsed.data.provider, parsed.data.role ?? 'buyer');
+    res.json({ user });
+  } catch (error) {
+    handleAuthError(res, error);
+  }
 });
 
 authRouter.post('/password-reset', (req, res) => {
@@ -104,7 +108,7 @@ authRouter.get('/me', requireAuth, (req: AuthenticatedRequest, res) => {
   res.json({ user: { ...req.user, sessionToken: extractSessionToken(req) } });
 });
 
-authRouter.patch('/profile', requireAuth, (req: AuthenticatedRequest, res) => {
+authRouter.patch('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
   const parsed = profileSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid profile payload', details: parsed.error.flatten() });
@@ -112,7 +116,7 @@ authRouter.patch('/profile', requireAuth, (req: AuthenticatedRequest, res) => {
   }
 
   try {
-    const user = platformStore.updateProfile(req.user!.id, parsed.data);
+    const user = await platformStore.updateProfile(req.user!.id, parsed.data);
     res.json({
       user: {
         ...user,

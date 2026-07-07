@@ -1,9 +1,14 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './app.js';
+import { initPlatformStore } from './store/index.js';
 
 describe('gridstore api', () => {
   const app = createApp();
+
+  beforeAll(async () => {
+    await initPlatformStore();
+  });
 
   it('returns health status', async () => {
     const response = await request(app).get('/api/health');

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { optionalAuth, requireAuth, requireSeller, type AuthenticatedRequest } from '../middleware/auth.js';
-import { platformStore } from '../store/platformStore.js';
+import { platformStore } from '../store/index.js';
 
 export const listingsRouter = Router();
 
@@ -40,23 +40,28 @@ listingsRouter.get('/:id', (req, res) => {
   res.json(stripSellerId(listing));
 });
 
-listingsRouter.post('/', requireAuth, requireSeller, (req: AuthenticatedRequest, res) => {
+listingsRouter.post('/', requireAuth, requireSeller, async (req: AuthenticatedRequest, res) => {
   const parsed = listingSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid listing payload', details: parsed.error.flatten() });
     return;
   }
 
-  const listing = platformStore.createListing(
-    req.user!.id,
-    req.user!.name,
-    Boolean(req.user!.verified),
-    parsed.data
-  );
-  res.status(201).json(stripSellerId(listing));
+  try {
+    const listing = await platformStore.createListing(
+      req.user!.id,
+      req.user!.name,
+      Boolean(req.user!.verified),
+      parsed.data
+    );
+    res.status(201).json(stripSellerId(listing));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to create listing';
+    res.status(400).json({ error: message });
+  }
 });
 
-listingsRouter.patch('/:id', requireAuth, requireSeller, (req: AuthenticatedRequest, res) => {
+listingsRouter.patch('/:id', requireAuth, requireSeller, async (req: AuthenticatedRequest, res) => {
   const parsed = listingSchema.partial().safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid listing payload', details: parsed.error.flatten() });
@@ -64,7 +69,7 @@ listingsRouter.patch('/:id', requireAuth, requireSeller, (req: AuthenticatedRequ
   }
 
   try {
-    const listing = platformStore.updateListing(req.user!.id, req.params.id, parsed.data);
+    const listing = await platformStore.updateListing(req.user!.id, req.params.id, parsed.data);
     res.json(stripSellerId(listing));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update listing';
@@ -72,9 +77,9 @@ listingsRouter.patch('/:id', requireAuth, requireSeller, (req: AuthenticatedRequ
   }
 });
 
-listingsRouter.post('/:id/toggle-pause', requireAuth, requireSeller, (req: AuthenticatedRequest, res) => {
+listingsRouter.post('/:id/toggle-pause', requireAuth, requireSeller, async (req: AuthenticatedRequest, res) => {
   try {
-    const listing = platformStore.toggleListingPause(req.user!.id, req.params.id);
+    const listing = await platformStore.toggleListingPause(req.user!.id, req.params.id);
     res.json(stripSellerId(listing));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update listing';

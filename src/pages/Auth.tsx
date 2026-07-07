@@ -71,17 +71,24 @@ export function Login() {
       }
       toast.success(`Welcome back, ${user.name}`);
       redirectAfterAuth(navigate, user, from);
-    } catch {
-      toast.error('Sign in failed. Please try again.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Sign in failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleOAuth = async (provider: 'google' | 'github') => {
-    const user = await oauthLogin(provider, role);
-    toast.success(`${provider === 'google' ? 'Google' : 'GitHub'} session created`);
-    redirectAfterAuth(navigate, user, from);
+    setLoading(true);
+    try {
+      const user = await oauthLogin(provider, role);
+      toast.success(`${provider === 'google' ? 'Google' : 'GitHub'} session created`);
+      redirectAfterAuth(navigate, user, from);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'OAuth sign in failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePasswordReset = async () => {
@@ -192,6 +199,11 @@ export function Login() {
               {loading ? 'Signing in...' : 'Sign In'}
               <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
             </Button>
+            <p className="text-xs text-center text-muted-foreground">
+              Demo API: <span className="font-medium">seller@gridstore.local</span> or{' '}
+              <span className="font-medium">buyer@gridstore.local</span> /{' '}
+              <span className="font-medium">demo1234</span>
+            </p>
             </form>
 
             <div className="relative my-6">
@@ -210,7 +222,8 @@ export function Login() {
                 type="button"
                 variant="outline"
                 className="h-11 bg-background/50 hover:bg-background"
-                onClick={() => handleOAuth('google')}>
+                disabled={loading}
+                onClick={() => void handleOAuth('google')}>
                 
                 <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                   <path
@@ -236,7 +249,8 @@ export function Login() {
                 type="button"
                 variant="outline"
                 className="h-11 bg-background/50 hover:bg-background"
-                onClick={() => handleOAuth('github')}>
+                disabled={loading}
+                onClick={() => void handleOAuth('github')}>
                 
                 <Github className="w-5 h-5 mr-2" />
                 GitHub
@@ -289,19 +303,26 @@ export function Signup() {
     setLoading(true);
     try {
       const user = await signup(fullName.trim(), email, password, role);
-      toast.success(`Welcome to GridStore, ${user.name}`);
+      toast.success(`Welcome to GridMarket AI, ${user.name}`);
       redirectAfterAuth(navigate, user, from);
-    } catch {
-      toast.error('Sign up failed. Please try again.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Sign up failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleOAuth = async (provider: 'google' | 'github') => {
-    const user = await oauthLogin(provider, role);
-    toast.success(`${provider === 'google' ? 'Google' : 'GitHub'} account connected`);
-    redirectAfterAuth(navigate, user, from);
+    setLoading(true);
+    try {
+      const user = await oauthLogin(provider, role);
+      toast.success(`${provider === 'google' ? 'Google' : 'GitHub'} account connected`);
+      redirectAfterAuth(navigate, user, from);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'OAuth sign up failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -424,7 +445,8 @@ export function Signup() {
                 type="button"
                 variant="outline"
                 className="h-11 bg-background/50 hover:bg-background"
-                onClick={() => handleOAuth('google')}>
+                disabled={loading}
+                onClick={() => void handleOAuth('google')}>
                 
                 <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                   <path
@@ -450,7 +472,8 @@ export function Signup() {
                 type="button"
                 variant="outline"
                 className="h-11 bg-background/50 hover:bg-background"
-                onClick={() => handleOAuth('github')}>
+                disabled={loading}
+                onClick={() => void handleOAuth('github')}>
                 
                 <Github className="w-5 h-5 mr-2" />
                 GitHub

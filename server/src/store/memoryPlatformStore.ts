@@ -7,38 +7,19 @@ import type {
   AppUser,
   AuthUser,
   Order,
-  OrderLine,
   SellerListing,
   StoredUser,
   UserRole,
 } from '../types.js';
+import type { CreateOrderInput, ListingInput, PlatformStore } from './storeTypes.js';
 
-interface ListingInput {
-  title: string;
-  category: string;
-  price: number;
-  inventory: number;
-  description: string;
-  location: string;
-}
-
-interface CreateOrderInput {
-  deliveryAddress: string;
-  paymentMethod: string;
-  lines: OrderLine[];
-}
-
-class PlatformStore {
+export class MemoryPlatformStore implements PlatformStore {
   private users = new Map<string, StoredUser>();
   private orders: Order[] = [];
   private listings: SellerListing[] = [];
   private seeded = false;
 
-  constructor() {
-    void this.ensureSeeded();
-  }
-
-  private async ensureSeeded() {
+  async ensureSeeded() {
     if (this.seeded) return;
     this.seeded = true;
 
@@ -145,8 +126,8 @@ class PlatformStore {
     return this.toAuthUser(user);
   }
 
-  oauthLogin(provider: 'google' | 'github', role: UserRole): AuthUser {
-    void this.ensureSeeded();
+  async oauthLogin(provider: 'google' | 'github', role: UserRole): Promise<AuthUser> {
+    await this.ensureSeeded();
     const email = `${provider}.user@gridstore.local`;
     let user = this.getUserByEmail(email);
     if (!user) {
@@ -162,7 +143,7 @@ class PlatformStore {
     return this.toAuthUser(user);
   }
 
-  updateProfile(userId: string, input: { name: string; email: string }): AppUser {
+  async updateProfile(userId: string, input: { name: string; email: string }): Promise<AppUser> {
     const user = this.users.get(userId);
     if (!user) {
       throw new Error('User not found');
@@ -186,7 +167,7 @@ class PlatformStore {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  createOrder(userId: string, input: CreateOrderInput): Order {
+  async createOrder(userId: string, input: CreateOrderInput): Promise<Order> {
     if (!input.lines.length) {
       throw new Error('Cart is empty');
     }
@@ -215,7 +196,7 @@ class PlatformStore {
     return order;
   }
 
-  refundOrder(userId: string, orderId: string): Order {
+  async refundOrder(userId: string, orderId: string): Promise<Order> {
     const order = this.orders.find((item) => item.id === orderId && item.userId === userId);
     if (!order) {
       throw new Error('Order not found');
@@ -244,7 +225,12 @@ class PlatformStore {
     return this.listings.find((listing) => listing.id === id);
   }
 
-  createListing(userId: string, sellerName: string, verified: boolean, input: ListingInput) {
+  async createListing(
+    userId: string,
+    sellerName: string,
+    verified: boolean,
+    input: ListingInput
+  ): Promise<SellerListing> {
     const listing: SellerListing = {
       id: createId('listing'),
       title: input.title,
@@ -267,7 +253,7 @@ class PlatformStore {
     return listing;
   }
 
-  updateListing(userId: string, listingId: string, input: Partial<ListingInput>) {
+  async updateListing(userId: string, listingId: string, input: Partial<ListingInput>) {
     const listing = this.listings.find(
       (item) => item.id === listingId && item.sellerId === userId
     );
@@ -290,7 +276,7 @@ class PlatformStore {
     return listing;
   }
 
-  toggleListingPause(userId: string, listingId: string) {
+  async toggleListingPause(userId: string, listingId: string) {
     const listing = this.listings.find(
       (item) => item.id === listingId && item.sellerId === userId
     );
@@ -309,5 +295,3 @@ class PlatformStore {
     };
   }
 }
-
-export const platformStore = new PlatformStore();

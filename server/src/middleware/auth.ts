@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { platformStore } from '../store/platformStore.js';
+import { platformStore } from '../store/index.js';
 import { verifyToken } from '../lib/tokens.js';
 import type { AppUser } from '../types.js';
 
