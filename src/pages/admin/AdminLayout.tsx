@@ -11,20 +11,21 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
+import { adminPath } from '../../lib/adminPaths';
 import { cn } from '../../lib/utils';
 import { PageHeader } from '../../components/design-system/PageHeader';
 
 const ADMIN_NAV = [
-  { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/admin/users', label: 'Users', icon: Users },
-  { to: '/admin/listings', label: 'Listings', icon: Package },
-  { to: '/admin/orders', label: 'Orders', icon: ShoppingCart },
-  { to: '/admin/payments', label: 'Payments', icon: Wallet },
-  { to: '/admin/disputes', label: 'Disputes', icon: Shield },
-  { to: '/admin/moderation', label: 'Moderation', icon: Flag },
-  { to: '/admin/analytics', label: 'Analytics', icon: Activity },
-  { to: '/admin/ai', label: 'AI Monitoring', icon: Bot },
-  { to: '/admin/settings', label: 'Settings', icon: Settings },
+  { to: adminPath(), label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: adminPath('users'), label: 'Users', icon: Users },
+  { to: adminPath('listings'), label: 'Listings', icon: Package },
+  { to: adminPath('orders'), label: 'Orders', icon: ShoppingCart },
+  { to: adminPath('payments'), label: 'Payments', icon: Wallet },
+  { to: adminPath('disputes'), label: 'Disputes', icon: Shield },
+  { to: adminPath('moderation'), label: 'Moderation', icon: Flag },
+  { to: adminPath('analytics'), label: 'Analytics', icon: Activity },
+  { to: adminPath('ai'), label: 'AI Monitoring', icon: Bot },
+  { to: adminPath('settings'), label: 'Settings', icon: Settings },
 ];
 
 export function AdminLayout() {

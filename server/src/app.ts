@@ -29,16 +29,31 @@ export function createApp() {
   app.use(
     cors({
       origin(origin, callback) {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+
+        let hostname = '';
+        try {
+          hostname = new URL(origin).hostname;
+        } catch {
+          callback(new Error('Not allowed by CORS'));
+          return;
+        }
+
         if (
-          !origin ||
-          /^https?:\/\/localhost(:\d+)?$/.test(origin) ||
-          /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin) ||
+          /^localhost$/.test(hostname) ||
+          /^127\.0\.0\.1$/.test(hostname) ||
           env.corsOrigin === '*' ||
-          origin === env.corsOrigin
+          env.corsOrigins.includes(origin) ||
+          origin === env.corsOrigin ||
+          hostname.endsWith('.onrender.com')
         ) {
           callback(null, true);
           return;
         }
+
         callback(new Error('Not allowed by CORS'));
       },
     })

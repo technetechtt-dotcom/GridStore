@@ -25,6 +25,11 @@ services:
           type: web
           name: gridstore-web
           envVarKey: RENDER_EXTERNAL_URL
+      - key: CORS_EXTRA_ORIGIN
+        fromService:
+          type: web
+          name: gridstore-admin
+          envVarKey: RENDER_EXTERNAL_URL
 
   # Vite React SPA (static CDN)
   - type: web
@@ -32,6 +37,24 @@ services:
     runtime: static
     buildCommand: npm ci && VITE_API_BASE_URL="${API_HOST}/api" npm run build
     staticPublishPath: dist
+    pullRequestPreviewsEnabled: true
+    envVars:
+      - key: API_HOST
+        fromService:
+          type: web
+          name: gridstore-api
+          envVarKey: RENDER_EXTERNAL_URL
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  # Standalone ops / admin dashboard (separate static deployment)
+  - type: web
+    name: gridstore-admin
+    runtime: static
+    buildCommand: npm ci && VITE_API_BASE_URL="${API_HOST}/api" VITE_ADMIN_BASE_PATH="" npm run build:admin
+    staticPublishPath: dist-admin
     pullRequestPreviewsEnabled: true
     envVars:
       - key: API_HOST

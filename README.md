@@ -9,9 +9,45 @@ npm install
 npm run dev:all
 ```
 
-Frontend: `http://localhost:5173` · API: `http://localhost:4000/api`
+Frontend: `http://localhost:5173` · Ops dashboard: `http://localhost:5174` · API: `http://localhost:4000/api`
 
 Copy `.env.example` to `.env` for local frontend overrides.
+
+## Ops dashboard (separate deployment)
+
+The platform ops/admin dashboard can run as its own static site, separate from the marketplace frontend.
+
+| Deployment | Local URL | Render service |
+|------------|-----------|----------------|
+| Marketplace | `http://localhost:5173` | `gridstore-web` |
+| Ops dashboard | `http://localhost:5174` | `gridstore-admin` |
+| API | `http://localhost:4000/api` | `gridstore-api` |
+
+**Local:**
+
+```bash
+npm run dev:all
+```
+
+Then open **http://localhost:5174** and sign in with `admin@gridstore.local` / `demo1234`.
+
+**Render:**
+
+The `render.yaml` blueprint deploys three services:
+
+1. `gridstore-api` — Express backend
+2. `gridstore-web` — public marketplace (`/admin` still works here too)
+3. `gridstore-admin` — standalone ops dashboard at its own URL (e.g. `https://gridstore-admin.onrender.com`)
+
+The admin build uses `VITE_ADMIN_BASE_PATH=""` so routes are `/`, `/users`, `/orders`, etc.
+
+**Build only the ops dashboard:**
+
+```bash
+VITE_API_BASE_URL=https://your-api.onrender.com/api VITE_ADMIN_BASE_PATH="" npm run build:admin
+```
+
+Output is written to `dist-admin/`.
 
 ## Session timeout (frontend)
 

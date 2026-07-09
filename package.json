@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "npx vite",
+    "dev:admin": "vite --config vite.admin.config.ts",
     "dev:server": "npm run dev --prefix server",
-    "dev:all": "concurrently -n web,api -c cyan,magenta \"npm run dev\" \"npm run dev:server\"",
+    "dev:all": "concurrently -n web,api,admin -c cyan,magenta,yellow \"npm run dev\" \"npm run dev:server\" \"npm run dev:admin\"",
     "build": "npx vite build",
+    "build:admin": "vite build --config vite.admin.config.ts",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "test": "vitest run",
     "test:server": "npm run test --prefix server",
