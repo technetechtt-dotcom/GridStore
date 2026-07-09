@@ -22,6 +22,14 @@ function parseCorsOrigins() {
   return Array.from(origins);
 }
 
+const renderDefaults =
+  process.env.RENDER === 'true'
+    ? {
+        web: 'https://gridstore-web.onrender.com',
+        admin: 'https://gridstore-admin.onrender.com',
+      }
+    : null;
+
 export const env = {
   port: Number(process.env.PORT ?? '4000'),
   corsOrigins: parseCorsOrigins(),
@@ -32,6 +40,6 @@ export const env = {
     process.env.VITEST === 'true' || process.env.NODE_ENV === 'test'
       ? ''
       : (process.env.DATABASE_URL ?? ''),
-  publicWebUrl: process.env.PUBLIC_WEB_URL ?? 'http://localhost:5173',
-  publicAdminUrl: process.env.PUBLIC_ADMIN_URL ?? 'http://localhost:5174',
+  publicWebUrl: process.env.PUBLIC_WEB_URL ?? renderDefaults?.web ?? 'http://localhost:5173',
+  publicAdminUrl: process.env.PUBLIC_ADMIN_URL ?? renderDefaults?.admin ?? 'http://localhost:5174',
 };

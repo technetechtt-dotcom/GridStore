@@ -127,7 +127,7 @@ export async function platformFetch<T>(
 }
 
 export async function apiLogin(email: string, password: string, role: UserRole = 'buyer') {
-  const payload = await platformFetch<{ user: AppUser & { sessionToken: string } }>(
+  const payload = await platformFetch<{ user?: AppUser & { sessionToken?: string } }>(
     '/auth/login',
     {
       method: 'POST',
@@ -135,8 +135,11 @@ export async function apiLogin(email: string, password: string, role: UserRole =
       auth: false,
     }
   );
+  if (!payload?.user?.sessionToken) {
+    throw new Error('Invalid login response from API');
+  }
   setAuthToken(payload.user.sessionToken);
-  return payload.user;
+  return payload.user as AppUser & { sessionToken: string };
 }
 
 export async function apiSignup(

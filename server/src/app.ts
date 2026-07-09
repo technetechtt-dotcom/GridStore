@@ -23,33 +23,33 @@ import { servicesRouter } from './routes/services.js';
 import { storesRouter } from './routes/stores.js';
 import { wishlistRouter } from './routes/wishlist.js';
 
+function isAllowedCorsOrigin(origin?: string) {
+  if (!origin) return true;
+
+  let hostname = '';
+  try {
+    hostname = new URL(origin).hostname;
+  } catch {
+    return false;
+  }
+
+  return (
+    /^localhost$/.test(hostname) ||
+    /^127\.0\.0\.1$/.test(hostname) ||
+    env.corsOrigin === '*' ||
+    env.corsOrigins.includes(origin) ||
+    origin === env.corsOrigin ||
+    hostname.endsWith('.onrender.com')
+  );
+}
+
 export function createApp() {
   const app = express();
 
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin) {
-          callback(null, true);
-          return;
-        }
-
-        let hostname = '';
-        try {
-          hostname = new URL(origin).hostname;
-        } catch {
-          callback(new Error('Not allowed by CORS'));
-          return;
-        }
-
-        if (
-          /^localhost$/.test(hostname) ||
-          /^127\.0\.0\.1$/.test(hostname) ||
-          env.corsOrigin === '*' ||
-          env.corsOrigins.includes(origin) ||
-          origin === env.corsOrigin ||
-          hostname.endsWith('.onrender.com')
-        ) {
+        if (isAllowedCorsOrigin(origin)) {
           callback(null, true);
           return;
         }
@@ -58,9 +58,18 @@ export function createApp() {
       },
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'X-Session-Token'],
+      optionsSuccessStatus: 204,
     })
   );
   app.use(express.json());
+  app.use((error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (error instanceof SyntaxError && 'body' in error) {
+      res.status(400).json({ error: 'Invalid JSON payload' });
+      return;
+    }
+
+    next(error);
+  });
 
   const api = express.Router();
   api.use(healthRouter);

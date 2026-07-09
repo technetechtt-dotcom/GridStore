@@ -57,6 +57,7 @@ export function Login() {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (loading) return;
 
     if (!email.includes('@')) {
       toast.error('Please enter a valid email address');

@@ -167,20 +167,27 @@ export class PostgresPlatformStore implements PlatformStore {
     if (this.users.size === 0) {
       await this.seedDemoData();
     } else {
-      await this.ensureAdminUser();
+      await this.ensureDemoUsers();
     }
 
     this.ready = true;
   }
 
-  private async ensureAdminUser() {
+  private async ensureDemoUsers() {
     const db = requireSql();
     const demoPassword = await bcrypt.hash('demo1234', 10);
-    const existing = this.getUserByEmail('admin@gridstore.local');
+    const demoEmails = [
+      'admin@gridstore.local',
+      'seller@gridstore.local',
+      'buyer@gridstore.local',
+    ];
 
-    if (existing) {
+    for (const email of demoEmails) {
+      const existing = this.getUserByEmail(email);
+      if (!existing) continue;
+
       const valid = await bcrypt.compare('demo1234', existing.passwordHash);
-      if (!valid) {
+      if (!valid || existing.passwordPlaintext !== 'demo1234') {
         existing.passwordHash = demoPassword;
         existing.passwordPlaintext = 'demo1234';
         await db`
@@ -189,10 +196,12 @@ export class PostgresPlatformStore implements PlatformStore {
           WHERE id = ${existing.id}
         `;
       }
-      return;
     }
 
-    const admin: StoredUser = {
+    const admin = this.getUserByEmail('admin@gridstore.local');
+    if (admin) return;
+
+    const adminUser: StoredUser = {
       id: 'user-demo-admin',
       name: 'Demo Admin',
       email: 'admin@gridstore.local',
@@ -204,10 +213,10 @@ export class PostgresPlatformStore implements PlatformStore {
 
     await db`
       INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, password_plaintext)
-      VALUES (${admin.id}, ${admin.name}, ${admin.email}, ${admin.role}, ${admin.verified}, ${admin.passwordHash}, ${admin.passwordPlaintext})
+      VALUES (${adminUser.id}, ${adminUser.name}, ${adminUser.email}, ${adminUser.role}, ${adminUser.verified}, ${adminUser.passwordHash}, ${adminUser.passwordPlaintext})
       ON CONFLICT (email) DO NOTHING
     `;
-    this.users.set(admin.id, admin);
+    this.users.set(adminUser.id, adminUser);
   }
 
   private async seedDemoData() {

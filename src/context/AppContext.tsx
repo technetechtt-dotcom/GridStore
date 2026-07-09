@@ -368,7 +368,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshFromApi = useCallback(async () => {
-    if (!isPlatformApiAvailable()) return;
+    if (!isPlatformApiAvailable() || !getAuthToken()) return;
 
     try {
       const synced = await syncPlatformData();
@@ -381,7 +381,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     return subscribeApiMode((mode) => {
-      if (mode === 'live') {
+      if (mode === 'live' && getAuthToken()) {
         void refreshFromApi();
       }
     });
@@ -867,17 +867,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return updated;
   };
 
-  const generateListingDraft = (seed: string): SellerListingInput => ({
+  const generateListingDraft = (seed: string): SellerListingInput => {
+    const normalizedSeed = (seed ?? '').toLowerCase();
+    return {
     title: seed.trim() ? `${seed.trim()} - Verified Local Listing` : 'AI generated listing',
-    category: seed.toLowerCase().includes('solar') ? 'Home & Garden' : 'Electronics',
-    price: seed.toLowerCase().includes('premium') ? 24999 : 4999,
+    category: normalizedSeed.includes('solar') ? 'Home & Garden' : 'Electronics',
+    price: normalizedSeed.includes('premium') ? 24999 : 4999,
     inventory: 3,
     location: 'Cape Town',
     description:
       'AI draft: highlight condition, warranty, delivery coverage, proof of ownership, and clear return terms before publishing.',
     saleMode: 'fixed',
     haggleEnabled: false,
-  });
+  };
+  };
 
   const refreshListingInState = (listing: SellerListing) => {
     const nextListings = sellerListings.map((item) => (item.id === listing.id ? listing : item));

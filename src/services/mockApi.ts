@@ -48,8 +48,8 @@ function numberValue(value: unknown): number {
   return 0;
 }
 
-function queryMatch(value: string | undefined | null, query: string) {
-  if (!value) return false;
+function queryMatch(value: string | undefined | null, query: string | undefined | null) {
+  if (!value || !query?.trim()) return false;
   return value.toLowerCase().includes(query.trim().toLowerCase());
 }
 
