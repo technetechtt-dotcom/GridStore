@@ -76,6 +76,18 @@ async function fetchJson<T>(path: string, query?: QueryParams, init?: RequestIni
     });
 
     if (!response.ok) {
+      if (response.status === 503) {
+        try {
+          const body = await parseJsonResponse<{ status?: string }>(response.clone());
+          if (body.status === 'starting') {
+            throw new Error('API is starting up');
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message === 'API is starting up') {
+            throw error;
+          }
+        }
+      }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
@@ -84,6 +96,18 @@ async function fetchJson<T>(path: string, query?: QueryParams, init?: RequestIni
   } finally {
     globalThis.clearTimeout(timeout);
   }
+}
+
+function isTransientApiError(error: unknown) {
+  const message = String(error instanceof Error ? error.message : error ?? '').toLowerCase();
+  return (
+    message.includes('starting up') ||
+    message.includes('503') ||
+    message.includes('502') ||
+    message.includes('failed to fetch') ||
+    message.includes('network') ||
+    message.includes('abort')
+  );
 }
 
 function filterProducts(query: string, category: string) {
@@ -181,7 +205,9 @@ export async function getMarketplaceProducts(query = '', category = ''): Promise
     notifyApiRequestSuccess();
     return rows.map(normalizeProduct);
   } catch (error) {
-    notifyApiRequestFailure(error);
+    if (!isTransientApiError(error)) {
+      notifyApiRequestFailure(error);
+    }
     return filterProducts(query, category);
   }
 }

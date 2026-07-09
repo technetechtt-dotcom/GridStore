@@ -50,7 +50,7 @@ export class MemoryUserFeaturesStore implements UserFeaturesStore {
 
   async listNotifications(userId: string) {
     if (!this.notifications.has(userId)) {
-      this.notifications.set(userId, defaultNotifications());
+      this.notifications.set(userId, defaultNotifications(userId));
     }
     return [...(this.notifications.get(userId) ?? [])];
   }

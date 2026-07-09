@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { createApp, setStoresReady } from './app.js';
+import { createApp } from './app.js';
+import { setStoresReady } from './storeReadiness.js';
 import { initPlatformStore } from './store/index.js';
 import { initUserFeaturesStore } from './store/userFeatures/index.js';
 
@@ -40,12 +41,15 @@ describe('gridstore api', () => {
     const startingApp = createApp();
 
     const health = await request(startingApp).get('/api/health');
-    const blocked = await request(startingApp).get('/api/products');
+    const products = await request(startingApp).get('/api/products');
+    const blocked = await request(startingApp).get('/api/auth/me');
 
     setStoresReady(true);
 
     expect(health.status).toBe(200);
-    expect(health.body.status).toBe('ok');
+    expect(health.body.status).toBe('starting');
+    expect(health.body.ready).toBe(false);
+    expect(products.status).toBe(200);
     expect(blocked.status).toBe(503);
     expect(blocked.body.status).toBe('starting');
   });
@@ -173,6 +177,33 @@ describe('gridstore api', () => {
 
     expect(booking.status).toBe(201);
     expect(booking.body.status).toBe('requested');
+  });
+
+  it('seeds default notifications independently per user', async () => {
+    const buyerLogin = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'buyer@gridstore.local', password: 'demo1234' });
+    const sellerLogin = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'seller@gridstore.local', password: 'demo1234', role: 'seller' });
+
+    const buyerToken = buyerLogin.body.user.sessionToken as string;
+    const sellerToken = sellerLogin.body.user.sessionToken as string;
+    const buyerId = buyerLogin.body.user.id as string;
+    const sellerId = sellerLogin.body.user.id as string;
+
+    const buyerNotifications = await request(app)
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${buyerToken}`);
+    const sellerNotifications = await request(app)
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${sellerToken}`);
+
+    expect(buyerNotifications.status).toBe(200);
+    expect(sellerNotifications.status).toBe(200);
+    expect(buyerNotifications.body[0].id).toBe(`${buyerId}-welcome`);
+    expect(sellerNotifications.body[0].id).toBe(`${sellerId}-welcome`);
+    expect(buyerNotifications.body[0].id).not.toBe(sellerNotifications.body[0].id);
   });
 
   it('returns ops stats for admin user', async () => {

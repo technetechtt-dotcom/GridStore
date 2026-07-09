@@ -5,6 +5,7 @@ export type ConnectionStatus = 'checking' | 'connected' | 'disconnected';
 
 export interface PlatformHealth {
   status: string;
+  ready?: boolean;
   service: string;
   marketplaceUrl?: string;
   opsDashboardUrl?: string;
@@ -36,6 +37,18 @@ function setApiMode(mode: ApiMode) {
 function setConnectionStatus(status: ConnectionStatus) {
   connectionStatus = status;
   connectionListeners.forEach((listener) => listener(status));
+}
+
+function isTransientApiError(error: unknown) {
+  const message = String(error instanceof Error ? error.message : error ?? '').toLowerCase();
+  return (
+    message.includes('starting up') ||
+    message.includes('503') ||
+    message.includes('502') ||
+    message.includes('failed to fetch') ||
+    message.includes('network') ||
+    message.includes('abort')
+  );
 }
 
 function showFallbackNotice(error: unknown) {
@@ -98,8 +111,8 @@ export async function checkApiConnection(options: { silent?: boolean } = {}) {
     }
 
     const health = await parseJsonResponse<PlatformHealth>(response);
-    if (health.status !== 'ok') {
-      throw new Error('API health check failed');
+    if (health.status !== 'ok' || health.ready === false) {
+      throw new Error('API is starting up');
     }
 
     lastHealth = health;
@@ -116,9 +129,15 @@ export async function checkApiConnection(options: { silent?: boolean } = {}) {
       monitorBaseIntervalMs * 2 ** Math.min(consecutiveFailures - 1, 3),
       MAX_MONITOR_INTERVAL_MS
     );
-    setApiMode('demo');
-    setConnectionStatus('disconnected');
-    showFallbackNotice(error);
+    if (isTransientApiError(error)) {
+      setConnectionStatus('disconnected');
+      return false;
+    }
+    if (!silent) {
+      setApiMode('demo');
+      setConnectionStatus('disconnected');
+      showFallbackNotice(error);
+    }
     return false;
   } finally {
     globalThis.clearTimeout(timeout);
@@ -130,6 +149,7 @@ export function notifyApiRequestSuccess() {
 }
 
 export function notifyApiRequestFailure(error: unknown) {
+  if (isTransientApiError(error)) return;
   setApiMode('demo');
   showFallbackNotice(error);
 }

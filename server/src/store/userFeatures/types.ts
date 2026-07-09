@@ -50,10 +50,10 @@ export interface UserFeaturesStore {
   listAllReports(): Promise<TrustReport[]>;
 }
 
-export function defaultNotifications(): NotificationItem[] {
+export function defaultNotifications(userId: string): NotificationItem[] {
   return [
     {
-      id: 'notif-welcome',
+      id: `${userId}-welcome`,
       title: 'Welcome to GridMarket AI',
       description: 'Your account is ready. Browse listings or start selling today.',
       createdAt: 'Just now',

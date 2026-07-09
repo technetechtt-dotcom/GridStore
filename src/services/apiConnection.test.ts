@@ -47,6 +47,26 @@ describe('apiConnection', () => {
     expect(getConnectionStatus()).toBe('disconnected');
   });
 
+  it('marks platform disconnected when API is still starting', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'starting',
+          ready: false,
+          service: 'gridstore-api',
+          timestamp: new Date().toISOString(),
+        }),
+      })
+    );
+
+    const connected = await checkApiConnection();
+
+    expect(connected).toBe(false);
+    expect(getConnectionStatus()).toBe('disconnected');
+  });
+
   it('notifies connection status subscribers', async () => {
     const listener = vi.fn();
     const unsubscribe = subscribeConnectionStatus(listener);

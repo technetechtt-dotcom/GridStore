@@ -1,4 +1,5 @@
-import { createApp, setStoresReady } from './app.js';
+import { createApp } from './app.js';
+import { setStoresReady } from './storeReadiness.js';
 import { env } from './config/env.js';
 import { initPlatformStore } from './store/index.js';
 import { initUserFeaturesStore } from './store/userFeatures/index.js';

@@ -12,6 +12,24 @@ import type {
 } from '../../types.js';
 import { defaultNotifications, type UserFeaturesStore } from './types.js';
 
+interface NotificationRow {
+  id: string;
+  title: string;
+  description: string;
+  created_at: string;
+  unread: boolean;
+}
+
+function mapNotificationRow(row: NotificationRow): NotificationItem {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    createdAt: row.created_at,
+    unread: row.unread,
+  };
+}
+
 export class PostgresUserFeaturesStore implements UserFeaturesStore {
   private ready = false;
 
@@ -79,32 +97,28 @@ export class PostgresUserFeaturesStore implements UserFeaturesStore {
       FROM gridstore_notifications
       WHERE user_id = ${userId}
       ORDER BY created_at DESC
-    `) as {
-      id: string;
-      title: string;
-      description: string;
-      created_at: string;
-      unread: boolean;
-    }[];
+    `) as NotificationRow[];
 
     if (!rows.length) {
-      const defaults = defaultNotifications();
+      const defaults = defaultNotifications(userId);
       for (const item of defaults) {
         await db`
           INSERT INTO gridstore_notifications (id, user_id, title, description, created_at, unread)
           VALUES (${item.id}, ${userId}, ${item.title}, ${item.description}, ${item.createdAt}, ${item.unread})
+          ON CONFLICT (id) DO NOTHING
         `;
       }
-      return defaults;
+
+      const seeded = (await db`
+        SELECT id, title, description, created_at, unread
+        FROM gridstore_notifications
+        WHERE user_id = ${userId}
+        ORDER BY created_at DESC
+      `) as NotificationRow[];
+      return seeded.map(mapNotificationRow);
     }
 
-    return rows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      description: row.description,
-      createdAt: row.created_at,
-      unread: row.unread,
-    }));
+    return rows.map(mapNotificationRow);
   }
 
   async markNotificationRead(userId: string, notificationId: string) {

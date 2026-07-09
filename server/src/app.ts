@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import { env } from './config/env.js';
+import { areStoresReady } from './storeReadiness.js';
 import { adminRouter } from './routes/admin.js';
 import { aiRouter } from './routes/ai.js';
 import { applicationsRouter } from './routes/applications.js';
@@ -23,16 +24,6 @@ import { servicesRouter } from './routes/services.js';
 import { storesRouter } from './routes/stores.js';
 import { wishlistRouter } from './routes/wishlist.js';
 
-let storesReady = true;
-
-export function setStoresReady(ready: boolean) {
-  storesReady = ready;
-}
-
-export function areStoresReady() {
-  return storesReady;
-}
-
 function isAllowedCorsOrigin(origin?: string) {
   if (!origin) return true;
 
@@ -51,6 +42,10 @@ function isAllowedCorsOrigin(origin?: string) {
     origin === env.corsOrigin ||
     hostname.endsWith('.onrender.com')
   );
+}
+
+function isCatalogPath(path: string) {
+  return /^\/(products|services|rentals|jobs)(\/|$)/.test(path);
 }
 
 export function createApp() {
@@ -84,7 +79,7 @@ export function createApp() {
   const api = express.Router();
   api.use(healthRouter);
   api.use((req, res, next) => {
-    if (storesReady || req.path === '/health') {
+    if (areStoresReady() || req.path === '/health' || isCatalogPath(req.path)) {
       next();
       return;
     }
@@ -117,6 +112,21 @@ export function createApp() {
   api.use('/ai', aiRouter);
 
   app.use('/api', api);
+
+  app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const origin = req.headers.origin;
+    if (typeof origin === 'string' && isAllowedCorsOrigin(origin) && !res.headersSent) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
+
+    if (error instanceof Error && error.message === 'Not allowed by CORS') {
+      res.status(403).json({ error: 'Not allowed by CORS' });
+      return;
+    }
+
+    next(error);
+  });
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' });
