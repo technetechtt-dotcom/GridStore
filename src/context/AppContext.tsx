@@ -281,7 +281,13 @@ function nowLabel() {
   }).format(new Date());
 }
 
-export function AppProvider({ children }: { children: React.ReactNode }) {
+export function AppProvider({
+  children,
+  skipPlatformSync = false,
+}: {
+  children: React.ReactNode;
+  skipPlatformSync?: boolean;
+}) {
   const initialState = useMemo(() => {
     const loaded = loadState();
     hydrateAuthToken(loaded.user);
@@ -368,7 +374,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshFromApi = useCallback(async () => {
-    if (!isPlatformApiAvailable() || !getAuthToken() || getConnectionStatus() !== 'connected') return;
+    if (
+      skipPlatformSync ||
+      !isPlatformApiAvailable() ||
+      !getAuthToken() ||
+      getConnectionStatus() !== 'connected'
+    ) {
+      return;
+    }
 
     try {
       const synced = await syncPlatformData();
@@ -377,15 +390,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Keep local persisted state when sync fails.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- persist mirrors current React state snapshot
-  }, [sellerListings, user, notifications, messageThreads]);
+  }, [skipPlatformSync, sellerListings, user, notifications, messageThreads]);
 
   useEffect(() => {
+    if (skipPlatformSync) return;
+
     return subscribeApiMode((mode) => {
       if (mode === 'live' && getConnectionStatus() === 'connected' && getAuthToken()) {
         void refreshFromApi();
       }
     });
-  }, [refreshFromApi]);
+  }, [refreshFromApi, skipPlatformSync]);
 
   useEffect(() => {
     let cancelled = false;
@@ -447,6 +462,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     const userWithToken = token ? { ...nextUser, sessionToken: token } : nextUser;
     setUser(userWithToken);
+    if (skipPlatformSync) {
+      persist({ user: userWithToken });
+      return userWithToken;
+    }
     try {
       const synced = await syncPlatformData();
       applySyncedState(synced, userWithToken);

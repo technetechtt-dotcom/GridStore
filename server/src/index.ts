@@ -6,14 +6,7 @@ import { initUserFeaturesStore } from './store/userFeatures/index.js';
 import { initStoresStore } from './store/stores/index.js';
 import { initTradeStore } from './store/trade/index.js';
 
-async function start() {
-  setStoresReady(false);
-  const app = createApp();
-
-  app.listen(env.port, () => {
-    console.log(`GridStore API listening on http://localhost:${env.port}/api`);
-  });
-
+async function initializeStores(attempt = 1) {
   try {
     await initPlatformStore();
     await initUserFeaturesStore();
@@ -22,9 +15,25 @@ async function start() {
     setStoresReady(true);
     console.log('Platform stores ready');
   } catch (error) {
-    console.error('Failed to initialize platform stores:', error);
-    process.exit(1);
+    setStoresReady(false);
+    console.error(`Failed to initialize platform stores (attempt ${attempt}):`, error);
+
+    const retryDelayMs = Math.min(10_000 * attempt, 60_000);
+    globalThis.setTimeout(() => {
+      void initializeStores(attempt + 1);
+    }, retryDelayMs);
   }
+}
+
+async function start() {
+  setStoresReady(false);
+  const app = createApp();
+
+  app.listen(env.port, () => {
+    console.log(`GridStore API listening on http://localhost:${env.port}/api`);
+  });
+
+  void initializeStores();
 }
 
 start().catch((error) => {

@@ -13,12 +13,17 @@ export interface PlatformHealth {
 
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? '10000');
 const MONITOR_INTERVAL_MS = Number(import.meta.env.VITE_API_MONITOR_MS ?? '20000');
+const MAX_MONITOR_INTERVAL_MS = Number(import.meta.env.VITE_API_MONITOR_MAX_MS ?? '120000');
 
 let apiMode: ApiMode = 'checking';
 let connectionStatus: ConnectionStatus = 'checking';
 let lastHealth: PlatformHealth | null = null;
 let lastError: string | null = null;
 let fallbackNoticeShown = false;
+let monitorTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+let monitorBaseIntervalMs = MONITOR_INTERVAL_MS;
+let monitorCurrentIntervalMs = MONITOR_INTERVAL_MS;
+let consecutiveFailures = 0;
 
 const apiModeListeners = new Set<(mode: ApiMode) => void>();
 const connectionListeners = new Set<(status: ConnectionStatus) => void>();
@@ -98,12 +103,19 @@ export async function checkApiConnection(options: { silent?: boolean } = {}) {
     }
 
     lastHealth = health;
+    consecutiveFailures = 0;
+    monitorCurrentIntervalMs = monitorBaseIntervalMs;
     setApiMode('live');
     setConnectionStatus('connected');
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'API unreachable';
     lastError = message;
+    consecutiveFailures += 1;
+    monitorCurrentIntervalMs = Math.min(
+      monitorBaseIntervalMs * 2 ** Math.min(consecutiveFailures - 1, 3),
+      MAX_MONITOR_INTERVAL_MS
+    );
     setApiMode('demo');
     setConnectionStatus('disconnected');
     showFallbackNotice(error);
@@ -122,14 +134,33 @@ export function notifyApiRequestFailure(error: unknown) {
   showFallbackNotice(error);
 }
 
+function scheduleMonitorTick() {
+  if (monitorTimer) {
+    globalThis.clearTimeout(monitorTimer);
+  }
+
+  monitorTimer = globalThis.setTimeout(() => {
+    void checkApiConnection({ silent: true }).finally(() => {
+      scheduleMonitorTick();
+    });
+  }, monitorCurrentIntervalMs);
+}
+
 export function startConnectionMonitor(intervalMs = MONITOR_INTERVAL_MS) {
-  void checkApiConnection();
+  monitorBaseIntervalMs = intervalMs;
+  monitorCurrentIntervalMs = intervalMs;
+  consecutiveFailures = 0;
 
-  const timer = globalThis.setInterval(() => {
-    void checkApiConnection({ silent: true });
-  }, intervalMs);
+  void checkApiConnection().finally(() => {
+    scheduleMonitorTick();
+  });
 
-  return () => globalThis.clearInterval(timer);
+  return () => {
+    if (monitorTimer) {
+      globalThis.clearTimeout(monitorTimer);
+      monitorTimer = null;
+    }
+  };
 }
 
 export function getConnectionSummary() {

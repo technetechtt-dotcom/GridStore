@@ -32,8 +32,8 @@ import { AdminProtectedRoute } from './AdminProtectedRoute';
 export function AdminApp() {
   return (
     <ThemeProvider>
-      <AppProvider>
-        <PlatformConnectionProvider>
+      <AppProvider skipPlatformSync>
+        <PlatformConnectionProvider monitorIntervalMs={60000}>
         <PlatformConnectionBanner />
         <BrowserRouter>
           <Routes>
