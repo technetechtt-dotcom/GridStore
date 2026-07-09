@@ -18,8 +18,12 @@ import {
   RefreshCw,
   Shield,
   ShoppingCart,
+  Store,
   Users,
   Wallet,
+  Wrench,
+  Gavel,
+  ShoppingBag,
 } from 'lucide-react';
 import { EmptyState } from '../../components/design-system/EmptyState';
 import { PageHeader } from '../../components/design-system/PageHeader';
@@ -44,23 +48,26 @@ import {
   apiGetAdminReports,
   apiGetAdminSettings,
   apiGetAdminStats,
+  apiGetAdminStores,
   apiGetAdminUsers,
   apiUpdateAdminListing,
   apiUpdateAdminOrder,
   apiUpdateAdminReport,
+  apiUpdateAdminStore,
   apiUpdateAdminUser,
   type AdminAnalyticsPoint,
   type AdminOrderRow,
   type AdminPaymentRow,
   type AdminStats,
+  type AdminStoreRow,
 } from '../../services/adminApi';
-import type { AppUser, SellerListing, TrustReport } from '../../types';
+import type { AppUser, SellerListing, StoreProfile, TrustReport } from '../../types';
 
 function formatCurrency(value: number) {
   return `R ${Math.round(value).toLocaleString('en-ZA')}`;
 }
 
-function useAdminResource<T>(loader: () => Promise<T>, deps: unknown[] = []) {
+export function useAdminResource<T>(loader: () => Promise<T>, deps: unknown[] = []) {
   const [data, setData] = React.useState<T | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -84,7 +91,7 @@ function useAdminResource<T>(loader: () => Promise<T>, deps: unknown[] = []) {
   return { data, loading, error, refresh };
 }
 
-function OpsLoading({ label = 'Loading ops data…' }: { label?: string }) {
+export function OpsLoading({ label = 'Loading ops data…' }: { label?: string }) {
   return (
     <div className="flex min-h-[240px] items-center justify-center text-muted-foreground">
       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -93,7 +100,7 @@ function OpsLoading({ label = 'Loading ops data…' }: { label?: string }) {
   );
 }
 
-function OpsError({ message, onRetry }: { message: string; onRetry: () => void }) {
+export function OpsError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <Card className="border-destructive/30">
       <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
@@ -140,7 +147,7 @@ function OpsChart({ data }: { data: AdminAnalyticsPoint[] }) {
   );
 }
 
-function statusBadgeVariant(status: string) {
+export function statusBadgeVariant(status: string) {
   if (['active', 'paid', 'Settled', 'resolved', 'confirmed', 'delivered'].includes(status)) {
     return 'default' as const;
   }
@@ -177,6 +184,10 @@ export function AdminDashboard() {
     { label: 'Total users', value: String(stats.totalUsers), icon: Users },
     { label: 'Orders', value: String(stats.totalOrders), icon: ShoppingCart },
     { label: 'Listings', value: String(stats.totalListings), icon: Package },
+    { label: 'Stores', value: String(stats.totalStores), icon: Store },
+    { label: 'Marketplace', value: String(stats.totalMarketplaceProducts), icon: ShoppingBag },
+    { label: 'Live auctions', value: String(stats.liveAuctions), icon: Gavel },
+    { label: 'Services', value: String(stats.totalServices), icon: Wrench },
     {
       label: 'Revenue',
       value: formatCurrency(stats.revenueTotal),
@@ -208,7 +219,7 @@ export function AdminDashboard() {
           Refresh
         </Button>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
         {cards.map((stat) => (
           <StatCard key={stat.label} {...stat} />
         ))}
@@ -303,6 +314,103 @@ export function AdminUsers() {
                   <TableCell className="text-right">
                     <Button size="sm" variant="outline" onClick={() => void toggleVerified(user)}>
                       {user.verified ? 'Revoke' : 'Verify'}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export function AdminStores() {
+  const { data, loading, error, refresh } = useAdminResource(apiGetAdminStores);
+
+  const setStatus = async (store: AdminStoreRow, status: StoreProfile['status']) => {
+    try {
+      await apiUpdateAdminStore(store.id, { status });
+      toast.success(`${store.name} marked ${status}`);
+      void refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Update failed');
+    }
+  };
+
+  const toggleVerified = async (store: AdminStoreRow) => {
+    try {
+      await apiUpdateAdminStore(store.id, { verified: !store.verified });
+      toast.success(`${store.name} verification updated`);
+      void refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Update failed');
+    }
+  };
+
+  if (loading) return <OpsLoading />;
+  if (error) return <OpsError message={error} onRetry={refresh} />;
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <PageHeader
+        title="Stores"
+        description="Review seller storefronts, verify shops, and pause listings that need moderation."
+      />
+      <Card className="border-border/60 shadow-soft">
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Store</TableHead>
+                <TableHead>Owner</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Verified</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(data ?? []).map((store) => (
+                <TableRow key={store.id}>
+                  <TableCell>
+                    <div>
+                      <p className="font-medium">{store.name}</p>
+                      <p className="text-xs text-muted-foreground">{store.followers} followers</p>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div>
+                      <p className="font-medium">{store.ownerName}</p>
+                      <p className="text-xs text-muted-foreground">{store.ownerEmail}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell>{store.category}</TableCell>
+                  <TableCell>{store.location}</TableCell>
+                  <TableCell>
+                    <Badge variant={statusBadgeVariant(store.status ?? 'active')}>
+                      {store.status ?? 'active'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={store.verified ? 'default' : 'secondary'}>
+                      {store.verified ? 'Verified' : 'Pending'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="space-x-2 text-right">
+                    <Button size="sm" variant="outline" onClick={() => void toggleVerified(store)}>
+                      {store.verified ? 'Revoke' : 'Verify'}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => void setStatus(store, 'active')}>
+                      Activate
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => void setStatus(store, 'paused')}>
+                      Pause
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => void setStatus(store, 'draft')}>
+                      Draft
                     </Button>
                   </TableCell>
                 </TableRow>

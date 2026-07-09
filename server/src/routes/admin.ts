@@ -5,14 +5,26 @@ import { requireAdmin, requireModerator } from '../middleware/roles.js';
 import {
   getAdminAnalytics,
   getAdminStats,
+  listAdminAuctions,
+  listAdminJobs,
   listAdminListings,
+  listAdminMarketplaceProducts,
   listAdminOrders,
   listAdminPayments,
+  listAdminRentals,
   listAdminReports,
+  listAdminServices,
+  listAdminStores,
   listAdminUsers,
+  updateAdminAuction,
+  updateAdminJob,
   updateAdminListing,
+  updateAdminMarketplaceProduct,
   updateAdminOrder,
+  updateAdminRental,
   updateAdminReport,
+  updateAdminService,
+  updateAdminStore,
   updateAdminUser,
 } from '../services/adminService.js';
 
@@ -123,6 +135,184 @@ adminRouter.patch('/reports/:id', async (req, res) => {
     res.json(report);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update report';
+    res.status(404).json({ error: message });
+  }
+});
+
+adminRouter.get('/stores', async (_req, res) => {
+  res.json(await listAdminStores());
+});
+
+adminRouter.patch('/stores/:id', async (req, res) => {
+  const parsed = z
+    .object({
+      name: z.string().min(2).optional(),
+      category: z.string().min(2).optional(),
+      location: z.string().min(2).optional(),
+      description: z.string().min(10).optional(),
+      supportEmail: z.string().email().optional(),
+      status: z.enum(['active', 'draft', 'paused']).optional(),
+      verified: z.boolean().optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid store payload' });
+    return;
+  }
+
+  try {
+    const store = await updateAdminStore(req.params.id, parsed.data);
+    res.json(store);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to update store';
+    res.status(404).json({ error: message });
+  }
+});
+
+const catalogStatusSchema = z.enum(['active', 'paused', 'flagged']);
+
+adminRouter.get('/marketplace', async (_req, res) => {
+  res.json(await listAdminMarketplaceProducts());
+});
+
+adminRouter.patch('/marketplace/:id', async (req, res) => {
+  const parsed = z
+    .object({
+      title: z.string().min(2).optional(),
+      category: z.string().min(2).optional(),
+      price: z.number().nonnegative().optional(),
+      seller: z.string().min(2).optional(),
+      location: z.string().min(2).optional(),
+      description: z.string().min(10).optional(),
+      badge: z.string().optional(),
+      status: catalogStatusSchema.optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid marketplace product payload' });
+    return;
+  }
+
+  try {
+    const product = await updateAdminMarketplaceProduct(req.params.id, parsed.data);
+    res.json(product);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to update product';
+    res.status(404).json({ error: message });
+  }
+});
+
+adminRouter.get('/services', async (_req, res) => {
+  res.json(await listAdminServices());
+});
+
+adminRouter.patch('/services/:id', async (req, res) => {
+  const parsed = z
+    .object({
+      title: z.string().min(2).optional(),
+      provider: z.string().min(2).optional(),
+      category: z.string().min(2).optional(),
+      priceLabel: z.string().min(2).optional(),
+      location: z.string().min(2).optional(),
+      description: z.string().min(10).optional(),
+      status: catalogStatusSchema.optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid service payload' });
+    return;
+  }
+
+  try {
+    const service = await updateAdminService(req.params.id, parsed.data);
+    res.json(service);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to update service';
+    res.status(404).json({ error: message });
+  }
+});
+
+adminRouter.get('/rentals', async (_req, res) => {
+  res.json(await listAdminRentals());
+});
+
+adminRouter.patch('/rentals/:id', async (req, res) => {
+  const parsed = z
+    .object({
+      title: z.string().min(2).optional(),
+      owner: z.string().min(2).optional(),
+      category: z.string().min(2).optional(),
+      dailyRate: z.number().nonnegative().optional(),
+      location: z.string().min(2).optional(),
+      description: z.string().min(10).optional(),
+      status: catalogStatusSchema.optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid rental payload' });
+    return;
+  }
+
+  try {
+    const rental = await updateAdminRental(req.params.id, parsed.data);
+    res.json(rental);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to update rental';
+    res.status(404).json({ error: message });
+  }
+});
+
+adminRouter.get('/jobs', async (_req, res) => {
+  res.json(await listAdminJobs());
+});
+
+adminRouter.patch('/jobs/:id', async (req, res) => {
+  const parsed = z
+    .object({
+      title: z.string().min(2).optional(),
+      company: z.string().min(2).optional(),
+      location: z.string().min(2).optional(),
+      salaryLabel: z.string().min(2).optional(),
+      type: z.string().min(2).optional(),
+      description: z.string().min(10).optional(),
+      status: catalogStatusSchema.optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid job payload' });
+    return;
+  }
+
+  try {
+    const job = await updateAdminJob(req.params.id, parsed.data);
+    res.json(job);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to update job';
+    res.status(404).json({ error: message });
+  }
+});
+
+adminRouter.get('/auctions', async (_req, res) => {
+  res.json(await listAdminAuctions());
+});
+
+adminRouter.patch('/auctions/:id', async (req, res) => {
+  const parsed = z
+    .object({
+      status: z.enum(['active', 'draft', 'paused', 'flagged']).optional(),
+      auctionStatus: z.enum(['none', 'live', 'ended']).optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid auction payload' });
+    return;
+  }
+
+  try {
+    const auction = await updateAdminAuction(req.params.id, parsed.data);
+    res.json(auction);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to update auction';
     res.status(404).json({ error: message });
   }
 });

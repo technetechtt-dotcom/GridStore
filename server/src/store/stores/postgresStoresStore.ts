@@ -4,7 +4,7 @@ import { migrate } from '../../db/migrate.js';
 import { createId, nowLabel } from '../../lib/ids.js';
 import { matchesQuery } from '../../lib/search.js';
 import type { StoreProfile } from '../../types.js';
-import type { StoreInput, StoresStore } from './types.js';
+import type { StoreInput, StoresStore, AdminStorePatch } from './types.js';
 
 const DEFAULT_STORE_IMAGE =
   'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=800';
@@ -22,6 +22,7 @@ interface StoreRow {
   status: 'active' | 'draft' | 'paused';
   verified: boolean;
   image: string | null;
+  created_at?: string;
 }
 
 function rowToStore(row: StoreRow): StoreProfile {
@@ -101,6 +102,26 @@ export class PostgresStoresStore implements StoresStore {
     return rows.map(rowToStore);
   }
 
+  async listAllStoresAdmin() {
+    await this.ensureSeeded();
+    const db = requireSql();
+    const rows = await db<StoreRow[]>`
+      SELECT * FROM gridstore_stores ORDER BY created_at DESC, name ASC
+    `;
+    return rows.map((row) => ({
+      ...rowToStore(row),
+      ownerId: row.owner_id,
+      createdAt: row.created_at,
+    }));
+  }
+
+  async countStores() {
+    await this.ensureSeeded();
+    const db = requireSql();
+    const rows = await db`SELECT COUNT(*)::int AS count FROM gridstore_stores`;
+    return Number(rows[0]?.count ?? 0);
+  }
+
   async getStore(id: string) {
     await this.ensureSeeded();
     const db = requireSql();
@@ -155,6 +176,29 @@ export class PostgresStoresStore implements StoresStore {
         support_email = COALESCE(${input.supportEmail?.trim() ?? null}, support_email),
         status = COALESCE(${input.status ?? null}, status),
         image = COALESCE(${input.image ?? null}, image)
+      WHERE id = ${storeId}
+    `;
+
+    const updated = await this.getStore(storeId);
+    if (!updated) throw new Error('Store not found');
+    return updated;
+  }
+
+  async adminUpdateStore(storeId: string, input: AdminStorePatch) {
+    await this.ensureSeeded();
+    const existing = await this.getStore(storeId);
+    if (!existing) throw new Error('Store not found');
+
+    const db = requireSql();
+    await db`
+      UPDATE gridstore_stores SET
+        name = COALESCE(${input.name?.trim() ?? null}, name),
+        category = COALESCE(${input.category?.trim() ?? null}, category),
+        location = COALESCE(${input.location?.trim() ?? null}, location),
+        description = COALESCE(${input.description?.trim() ?? null}, description),
+        support_email = COALESCE(${input.supportEmail?.trim() ?? null}, support_email),
+        status = COALESCE(${input.status ?? null}, status),
+        verified = COALESCE(${input.verified ?? null}, verified)
       WHERE id = ${storeId}
     `;
 

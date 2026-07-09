@@ -431,6 +431,27 @@ export class MemoryPlatformStore implements PlatformStore {
     );
   }
 
+  listAllAuctionsAdmin() {
+    return this.listings.filter((listing) => listing.saleMode === 'auction');
+  }
+
+  async adminUpdateAuction(
+    listingId: string,
+    patch: { status?: SellerListing['status']; auctionStatus?: SellerListing['auctionStatus'] }
+  ) {
+    const listing = this.listings.find((item) => item.id === listingId && item.saleMode === 'auction');
+    if (!listing) {
+      throw new Error('Auction not found');
+    }
+    if (patch.status !== undefined) {
+      listing.status = patch.status;
+    }
+    if (patch.auctionStatus !== undefined) {
+      listing.auctionStatus = patch.auctionStatus;
+    }
+    return listing;
+  }
+
   async updateListingTradeFields(
     listingId: string,
     patch: Partial<Pick<SellerListing, 'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode'>>

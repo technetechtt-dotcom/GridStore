@@ -7,6 +7,13 @@ import { PlatformConnectionBanner } from '../src/components/common/PlatformConne
 import { PlatformConnectionProvider } from '../src/providers/PlatformConnectionProvider';
 import { AdminLayout } from '../src/pages/admin/AdminLayout';
 import {
+  AdminAuctions,
+  AdminJobs,
+  AdminMarketplace,
+  AdminRentals,
+  AdminServices,
+} from '../src/pages/admin/AdminMarketplacePages';
+import {
   AdminAiMonitoring,
   AdminAnalytics,
   AdminDashboard,
@@ -16,6 +23,7 @@ import {
   AdminOrders,
   AdminPayments,
   AdminSettings,
+  AdminStores,
   AdminUsers,
 } from '../src/pages/admin/AdminPages';
 import { AdminLogin } from './AdminLogin';
@@ -34,6 +42,12 @@ export function AdminApp() {
               <Route element={<AdminLayout />}>
                 <Route index element={<AdminDashboard />} />
                 <Route path="users" element={<AdminUsers />} />
+                <Route path="stores" element={<AdminStores />} />
+                <Route path="marketplace" element={<AdminMarketplace />} />
+                <Route path="auctions" element={<AdminAuctions />} />
+                <Route path="services" element={<AdminServices />} />
+                <Route path="rentals" element={<AdminRentals />} />
+                <Route path="jobs" element={<AdminJobs />} />
                 <Route path="listings" element={<AdminListings />} />
                 <Route path="orders" element={<AdminOrders />} />
                 <Route path="payments" element={<AdminPayments />} />

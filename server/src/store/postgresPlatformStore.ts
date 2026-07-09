@@ -763,6 +763,31 @@ export class PostgresPlatformStore implements PlatformStore {
     );
   }
 
+  listAllAuctionsAdmin() {
+    return this.listings.filter((listing) => listing.saleMode === 'auction');
+  }
+
+  async adminUpdateAuction(
+    listingId: string,
+    patch: { status?: SellerListing['status']; auctionStatus?: SellerListing['auctionStatus'] }
+  ) {
+    const listing = this.listings.find((item) => item.id === listingId && item.saleMode === 'auction');
+    if (!listing) {
+      throw new Error('Auction not found');
+    }
+    if (patch.status !== undefined) {
+      listing.status = patch.status;
+      const db = requireSql();
+      await db`UPDATE gridstore_listings SET status = ${listing.status} WHERE id = ${listingId}`;
+    }
+    if (patch.auctionStatus !== undefined) {
+      await this.updateListingTradeFields(listingId, { auctionStatus: patch.auctionStatus });
+    }
+    const refreshed = this.listings.find((item) => item.id === listingId);
+    if (!refreshed) throw new Error('Auction not found');
+    return refreshed;
+  }
+
   async updateListingTradeFields(
     listingId: string,
     patch: Partial<Pick<SellerListing, 'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode'>>

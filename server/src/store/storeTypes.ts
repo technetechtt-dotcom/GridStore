@@ -65,8 +65,13 @@ export interface PlatformStore {
   listAllUsers(): AppUser[];
   listAllOrders(): Array<Order & { buyerName: string; buyerEmail: string }>;
   listAllListingsAdmin(): SellerListing[];
+  listAllAuctionsAdmin(): SellerListing[];
   adminUpdateUser(userId: string, patch: { role?: UserRole; verified?: boolean }): Promise<AppUser>;
   adminUpdateListingStatus(listingId: string, status: SellerListing['status']): Promise<SellerListing>;
+  adminUpdateAuction(
+    listingId: string,
+    patch: { status?: SellerListing['status']; auctionStatus?: SellerListing['auctionStatus'] }
+  ): Promise<SellerListing>;
   adminUpdateOrder(
     orderId: string,
     patch: { status?: Order['status']; paymentStatus?: Order['paymentStatus'] }

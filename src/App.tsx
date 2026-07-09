@@ -34,9 +34,17 @@ import {
   AdminOrders,
   AdminPayments,
   AdminSettings,
+  AdminStores,
   AdminUsers,
 } from './pages/admin/AdminPages';
 import { AdminLayout } from './pages/admin/AdminLayout';
+import {
+  AdminAuctions,
+  AdminJobs,
+  AdminMarketplace,
+  AdminRentals,
+  AdminServices,
+} from './pages/admin/AdminMarketplacePages';
 import { DeliveryTrackingPage } from './pages/delivery/DeliveryPages';
 import { PaymentMethodsPage, WalletPage } from './pages/payments/PaymentPages';
 import {
@@ -167,6 +175,12 @@ export function App() {
               >
                 <Route index element={<AdminDashboard />} />
                 <Route path="users" element={<AdminUsers />} />
+                <Route path="stores" element={<AdminStores />} />
+                <Route path="marketplace" element={<AdminMarketplace />} />
+                <Route path="auctions" element={<AdminAuctions />} />
+                <Route path="services" element={<AdminServices />} />
+                <Route path="rentals" element={<AdminRentals />} />
+                <Route path="jobs" element={<AdminJobs />} />
                 <Route path="listings" element={<AdminListings />} />
                 <Route path="orders" element={<AdminOrders />} />
                 <Route path="payments" element={<AdminPayments />} />

@@ -10,7 +10,10 @@ export interface Product {
   badge?: string;
   image: string;
   description: string;
+  status?: CatalogItemStatus;
 }
+
+export type CatalogItemStatus = 'active' | 'paused' | 'flagged';
 
 export interface Service {
   id: string;
@@ -22,6 +25,7 @@ export interface Service {
   location: string;
   image: string;
   description: string;
+  status?: CatalogItemStatus;
 }
 
 export interface Rental {
@@ -33,6 +37,7 @@ export interface Rental {
   location: string;
   image: string;
   description: string;
+  status?: CatalogItemStatus;
 }
 
 export interface Job {
@@ -43,6 +48,7 @@ export interface Job {
   salaryLabel: string;
   type: string;
   description: string;
+  status?: CatalogItemStatus;
 }
 
 export interface StoreProfile {
@@ -206,7 +212,25 @@ export interface AdminStats {
   totalUsers: number;
   totalOrders: number;
   totalListings: number;
+  totalStores: number;
+  totalMarketplaceProducts: number;
+  totalServices: number;
+  totalRentals: number;
+  totalJobs: number;
+  liveAuctions: number;
   openReports: number;
   pendingBookings: number;
   revenueTotal: number;
+}
+
+export interface AdminAuctionRow extends SellerListing {
+  sellerName: string;
+  isLive: boolean;
+}
+
+export interface AdminStoreRow extends StoreProfile {
+  ownerId: string;
+  ownerName: string;
+  ownerEmail: string;
+  createdAt?: string;
 }

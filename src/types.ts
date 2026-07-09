@@ -10,7 +10,7 @@ export interface Product {
   badge?: string;
   image: string;
   description: string;
-  status?: 'active' | 'draft' | 'paused' | 'flagged';
+  status?: 'active' | 'paused' | 'flagged' | 'draft';
   inventory?: number;
   riskScore?: number;
   verified?: boolean;
@@ -26,6 +26,7 @@ export interface Service {
   location: string;
   image: string;
   description: string;
+  status?: 'active' | 'paused' | 'flagged';
 }
 
 export interface Rental {
@@ -37,6 +38,7 @@ export interface Rental {
   location: string;
   image: string;
   description: string;
+  status?: 'active' | 'paused' | 'flagged';
 }
 
 export interface Job {
@@ -47,6 +49,7 @@ export interface Job {
   salaryLabel: string;
   type: string;
   description: string;
+  status?: 'active' | 'paused' | 'flagged';
 }
 
 export interface StoreProfile {

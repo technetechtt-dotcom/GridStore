@@ -175,6 +175,85 @@ describe('gridstore api', () => {
     expect(stats.status).toBe(200);
     expect(stats.body.totalUsers).toBeGreaterThanOrEqual(3);
     expect(stats.body.totalListings).toBeGreaterThan(0);
+    expect(stats.body.totalStores).toBeGreaterThan(0);
+  });
+
+  it('lists and updates stores for admin user', async () => {
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'admin@gridstore.local', password: 'demo1234', role: 'admin' });
+    const token = login.body.user.sessionToken as string;
+
+    const stores = await request(app)
+      .get('/api/admin/stores')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(stores.status).toBe(200);
+    expect(Array.isArray(stores.body)).toBe(true);
+    expect(stores.body.length).toBeGreaterThan(0);
+    expect(stores.body[0].ownerName).toBeTruthy();
+
+    const storeId = stores.body[0].id as string;
+    const updated = await request(app)
+      .patch(`/api/admin/stores/${storeId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'paused' });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body.status).toBe('paused');
+  });
+
+  it('lists and updates marketplace catalog for admin user', async () => {
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'admin@gridstore.local', password: 'demo1234', role: 'admin' });
+    const token = login.body.user.sessionToken as string;
+
+    const products = await request(app)
+      .get('/api/admin/marketplace')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(products.status).toBe(200);
+    expect(products.body.length).toBeGreaterThan(0);
+
+    const productId = products.body[0].id as string;
+    const updated = await request(app)
+      .patch(`/api/admin/marketplace/${productId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'paused' });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body.status).toBe('paused');
+  });
+
+  it('lists and updates auctions for admin user', async () => {
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'admin@gridstore.local', password: 'demo1234', role: 'admin' });
+    const token = login.body.user.sessionToken as string;
+
+    const auctions = await request(app)
+      .get('/api/admin/auctions')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(auctions.status).toBe(200);
+    expect(Array.isArray(auctions.body)).toBe(true);
+
+    if (auctions.body.length > 0) {
+      const auctionId = auctions.body[0].id as string;
+      const updated = await request(app)
+        .patch(`/api/admin/auctions/${auctionId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'paused' });
+
+      expect(updated.status).toBe(200);
+      expect(updated.body.status).toBe('paused');
+
+      await request(app)
+        .patch(`/api/admin/auctions/${auctionId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'active', auctionStatus: 'live' });
+    }
   });
 
   it('supports haggle offers between buyer and seller', async () => {

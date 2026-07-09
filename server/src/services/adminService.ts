@@ -1,15 +1,27 @@
 import { env } from '../config/env.js';
 import { requireSql } from '../db/client.js';
+import { isAuctionLive } from '../lib/listingSale.js';
+import { catalogStore } from '../store/catalogStore.js';
 import { platformStore } from '../store/index.js';
+import { storesStore } from '../store/stores/index.js';
 import { userFeaturesStore } from '../store/userFeatures/index.js';
 import type {
+  AdminAuctionRow,
   AdminStats,
+  AdminStoreRow,
   AppUser,
+  CatalogItemStatus,
+  Job,
   Order,
+  Product,
+  Rental,
   SellerListing,
+  Service,
+  StoreProfile,
   TrustReport,
   UserRole,
 } from '../types.js';
+import type { AdminStorePatch } from '../store/stores/types.js';
 
 export interface AdminAnalyticsPoint {
   month: string;
@@ -52,6 +64,12 @@ export async function getAdminStats(): Promise<AdminStats> {
       totalUsers: users.length,
       totalOrders: orders.length,
       totalListings: listings.length,
+      totalStores: await storesStore.countStores(),
+      totalMarketplaceProducts: catalogStore.countProducts(),
+      totalServices: catalogStore.countServices(),
+      totalRentals: catalogStore.countRentals(),
+      totalJobs: catalogStore.countJobs(),
+      liveAuctions: platformStore.listAuctionListings().length,
       openReports,
       pendingBookings: 0,
       revenueTotal,
@@ -59,10 +77,11 @@ export async function getAdminStats(): Promise<AdminStats> {
   }
 
   const db = requireSql();
-  const [users, orders, listings, bookings, revenue] = await Promise.all([
+  const [users, orders, listings, stores, bookings, revenue] = await Promise.all([
     db`SELECT COUNT(*)::int AS count FROM gridstore_users`,
     db`SELECT COUNT(*)::int AS count FROM gridstore_orders`,
     db`SELECT COUNT(*)::int AS count FROM gridstore_listings`,
+    db`SELECT COUNT(*)::int AS count FROM gridstore_stores`,
     db`SELECT COUNT(*)::int AS count FROM gridstore_bookings WHERE status = 'requested'`,
     db`SELECT COALESCE(SUM(total), 0)::float AS total FROM gridstore_orders WHERE payment_status = 'paid'`,
   ]);
@@ -71,6 +90,12 @@ export async function getAdminStats(): Promise<AdminStats> {
     totalUsers: (users[0] as { count: number }).count,
     totalOrders: (orders[0] as { count: number }).count,
     totalListings: (listings[0] as { count: number }).count,
+    totalStores: (stores[0] as { count: number }).count,
+    totalMarketplaceProducts: catalogStore.countProducts(),
+    totalServices: catalogStore.countServices(),
+    totalRentals: catalogStore.countRentals(),
+    totalJobs: catalogStore.countJobs(),
+    liveAuctions: platformStore.listAuctionListings().length,
     openReports,
     pendingBookings: (bookings[0] as { count: number }).count,
     revenueTotal: Number((revenue[0] as { total: number }).total),
@@ -159,4 +184,113 @@ export async function updateAdminReport(
   status: TrustReport['status']
 ): Promise<TrustReport> {
   return userFeaturesStore.updateReportStatus(reportId, status);
+}
+
+function toAdminStoreRow(
+  store: StoreProfile & { ownerId: string; createdAt?: string }
+): AdminStoreRow {
+  const owner = platformStore.getUserById(store.ownerId);
+  return {
+    id: store.id,
+    name: store.name,
+    category: store.category,
+    rating: store.rating,
+    followers: store.followers,
+    location: store.location,
+    description: store.description,
+    supportEmail: store.supportEmail,
+    status: store.status,
+    verified: store.verified,
+    image: store.image,
+    ownerId: store.ownerId,
+    ownerName: owner?.name ?? 'Unknown seller',
+    ownerEmail: owner?.email ?? '',
+    createdAt: store.createdAt,
+  };
+}
+
+export async function listAdminStores(): Promise<AdminStoreRow[]> {
+  const stores = await storesStore.listAllStoresAdmin();
+  return stores.map(toAdminStoreRow);
+}
+
+export async function updateAdminStore(
+  storeId: string,
+  patch: AdminStorePatch
+): Promise<AdminStoreRow> {
+  const updated = await storesStore.adminUpdateStore(storeId, patch);
+  const record = await storesStore.listAllStoresAdmin();
+  const match = record.find((store) => store.id === updated.id);
+  if (!match) {
+    throw new Error('Store not found');
+  }
+  return toAdminStoreRow(match);
+}
+
+export async function listAdminMarketplaceProducts(): Promise<Product[]> {
+  return catalogStore.listAllProductsAdmin();
+}
+
+export async function updateAdminMarketplaceProduct(
+  productId: string,
+  patch: Partial<Product> & { status?: CatalogItemStatus }
+): Promise<Product> {
+  return catalogStore.updateProductAdmin(productId, patch);
+}
+
+export async function listAdminServices(): Promise<Service[]> {
+  return catalogStore.listAllServicesAdmin();
+}
+
+export async function updateAdminService(
+  serviceId: string,
+  patch: Partial<Service> & { status?: CatalogItemStatus }
+): Promise<Service> {
+  return catalogStore.updateServiceAdmin(serviceId, patch);
+}
+
+export async function listAdminRentals(): Promise<Rental[]> {
+  return catalogStore.listAllRentalsAdmin();
+}
+
+export async function updateAdminRental(
+  rentalId: string,
+  patch: Partial<Rental> & { status?: CatalogItemStatus }
+): Promise<Rental> {
+  return catalogStore.updateRentalAdmin(rentalId, patch);
+}
+
+export async function listAdminJobs(): Promise<Job[]> {
+  return catalogStore.listAllJobsAdmin();
+}
+
+export async function updateAdminJob(
+  jobId: string,
+  patch: Partial<Job> & { status?: CatalogItemStatus }
+): Promise<Job> {
+  return catalogStore.updateJobAdmin(jobId, patch);
+}
+
+export async function listAdminAuctions(): Promise<AdminAuctionRow[]> {
+  return platformStore.listAllAuctionsAdmin().map((listing) => {
+    const seller = platformStore.getUserById(listing.sellerId);
+    return {
+      ...listing,
+      sellerName: seller?.name ?? listing.seller,
+      isLive: isAuctionLive(listing),
+    };
+  });
+}
+
+export async function updateAdminAuction(
+  listingId: string,
+  patch: { status?: SellerListing['status']; auctionStatus?: SellerListing['auctionStatus'] }
+): Promise<AdminAuctionRow> {
+  const updated = await platformStore.adminUpdateAuction(listingId, patch);
+  const seller = platformStore.getUserById(updated.sellerId);
+  return {
+    ...updated,
+    sellerName: seller?.name ?? updated.seller,
+    isLive: isAuctionLive(updated),
+  };
 }

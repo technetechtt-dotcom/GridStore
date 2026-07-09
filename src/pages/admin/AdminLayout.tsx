@@ -1,15 +1,21 @@
 import {
   Activity,
   Bot,
+  Briefcase,
   Flag,
+  Gavel,
+  KeyRound,
   LayoutDashboard,
   Loader2,
   Package,
   Settings,
   Shield,
+  ShoppingBag,
   ShoppingCart,
+  Store,
   Users,
   Wallet,
+  Wrench,
 } from 'lucide-react';
 import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useOpsSession } from '../../hooks/useOpsSession';
@@ -20,6 +26,12 @@ import { PageHeader } from '../../components/design-system/PageHeader';
 const ADMIN_NAV = [
   { to: adminPath(), label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: adminPath('users'), label: 'Users', icon: Users },
+  { to: adminPath('stores'), label: 'Stores', icon: Store },
+  { to: adminPath('marketplace'), label: 'Marketplace', icon: ShoppingBag },
+  { to: adminPath('auctions'), label: 'Auctions', icon: Gavel },
+  { to: adminPath('services'), label: 'Services', icon: Wrench },
+  { to: adminPath('rentals'), label: 'Rentals', icon: KeyRound },
+  { to: adminPath('jobs'), label: 'Jobs', icon: Briefcase },
   { to: adminPath('listings'), label: 'Listings', icon: Package },
   { to: adminPath('orders'), label: 'Orders', icon: ShoppingCart },
   { to: adminPath('payments'), label: 'Payments', icon: Wallet },
