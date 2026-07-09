@@ -178,6 +178,45 @@ describe('gridstore api', () => {
     expect(stats.body.totalStores).toBeGreaterThan(0);
   });
 
+  it('lists user passwords and supports admin password reset', async () => {
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'admin@gridstore.local', password: 'demo1234', role: 'admin' });
+    const token = login.body.user.sessionToken as string;
+
+    const users = await request(app)
+      .get('/api/admin/users')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(users.status).toBe(200);
+    expect(Array.isArray(users.body)).toBe(true);
+
+    const seller = users.body.find(
+      (user: { email: string }) => user.email === 'seller@gridstore.local'
+    );
+    expect(seller).toBeTruthy();
+    expect(seller.password).toBe('demo1234');
+
+    const reset = await request(app)
+      .post(`/api/admin/users/${seller.id}/reset-password`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ password: 'newpass99' });
+
+    expect(reset.status).toBe(200);
+    expect(reset.body.password).toBe('newpass99');
+
+    const sellerLogin = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'seller@gridstore.local', password: 'newpass99', role: 'seller' });
+
+    expect(sellerLogin.status).toBe(200);
+
+    await request(app)
+      .post(`/api/admin/users/${seller.id}/reset-password`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ password: 'demo1234' });
+  });
+
   it('lists and updates stores for admin user', async () => {
     const login = await request(app)
       .post('/api/auth/login')

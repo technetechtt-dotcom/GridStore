@@ -33,6 +33,7 @@ export class MemoryPlatformStore implements PlatformStore {
       role: 'seller',
       verified: true,
       passwordHash: demoPassword,
+      passwordPlaintext: 'demo1234',
     });
 
     this.createStoredUser({
@@ -42,6 +43,7 @@ export class MemoryPlatformStore implements PlatformStore {
       role: 'buyer',
       verified: true,
       passwordHash: demoPassword,
+      passwordPlaintext: 'demo1234',
     });
 
     this.createStoredUser({
@@ -51,6 +53,7 @@ export class MemoryPlatformStore implements PlatformStore {
       role: 'admin',
       verified: true,
       passwordHash: demoPassword,
+      passwordPlaintext: 'demo1234',
     });
 
     this.listings = seedProducts.slice(0, 3).map((product, index) => {
@@ -131,9 +134,10 @@ export class MemoryPlatformStore implements PlatformStore {
   }
 
   getUserByEmail(email: string) {
+    if (!email?.trim()) return undefined;
     const normalized = email.trim().toLowerCase();
     return Array.from(this.users.values()).find(
-      (user) => user.email.toLowerCase() === normalized
+      (user) => user.email?.toLowerCase() === normalized
     );
   }
 
@@ -153,6 +157,7 @@ export class MemoryPlatformStore implements PlatformStore {
       role,
       verified: false,
       passwordHash: await bcrypt.hash(password, 10),
+      passwordPlaintext: password,
     });
 
     return this.toAuthUser(user);
@@ -173,6 +178,7 @@ export class MemoryPlatformStore implements PlatformStore {
         role: inferRoleFromEmail(email, role),
         verified: true,
         passwordHash: await bcrypt.hash(password, 10),
+        passwordPlaintext: password,
       });
     } else {
       const valid = await bcrypt.compare(password, user.passwordHash);
@@ -368,6 +374,29 @@ export class MemoryPlatformStore implements PlatformStore {
 
   listAllUsers() {
     return Array.from(this.users.values()).map((user) => this.toPublicUser(user));
+  }
+
+  listAllUsersAdmin() {
+    return Array.from(this.users.values()).map((user) => ({
+      ...this.toPublicUser(user),
+      password: user.passwordPlaintext ?? null,
+    }));
+  }
+
+  async adminResetUserPassword(userId: string, password: string) {
+    if (password.length < 6) {
+      throw new Error('Password must be at least 6 characters');
+    }
+    const user = this.users.get(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    user.passwordHash = await bcrypt.hash(password, 10);
+    user.passwordPlaintext = password;
+    return {
+      ...this.toPublicUser(user),
+      password: user.passwordPlaintext,
+    };
   }
 
   listAllOrders() {

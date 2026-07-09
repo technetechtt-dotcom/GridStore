@@ -25,4 +25,12 @@ describe('auth fallback', () => {
     vi.mocked(getApiMode).mockReturnValue('demo');
     expect(shouldUseLocalAuthFallback(new Error('anything'))).toBe(true);
   });
+
+  it('does not throw when error message is missing', () => {
+    vi.mocked(getApiMode).mockReturnValue('live');
+    const error = new Error();
+    Object.defineProperty(error, 'message', { value: undefined });
+    expect(() => shouldUseLocalAuthFallback(error)).not.toThrow();
+    expect(shouldUseLocalAuthFallback(error)).toBe(false);
+  });
 });

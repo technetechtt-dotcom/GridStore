@@ -23,6 +23,8 @@ interface UserRow {
   role: UserRole;
   verified: boolean;
   password_hash: string;
+  password_plaintext?: string | null;
+  created_at?: string;
 }
 
 interface OrderRow {
@@ -72,6 +74,19 @@ function rowToStoredUser(row: UserRow): StoredUser {
     role: row.role,
     verified: row.verified,
     passwordHash: row.password_hash,
+    passwordPlaintext: row.password_plaintext ?? null,
+  };
+}
+
+function rowToAdminUser(row: UserRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    verified: row.verified,
+    password: row.password_plaintext ?? null,
+    createdAt: row.created_at,
   };
 }
 
@@ -159,10 +174,24 @@ export class PostgresPlatformStore implements PlatformStore {
   }
 
   private async ensureAdminUser() {
-    if (this.getUserByEmail('admin@gridstore.local')) return;
-
     const db = requireSql();
     const demoPassword = await bcrypt.hash('demo1234', 10);
+    const existing = this.getUserByEmail('admin@gridstore.local');
+
+    if (existing) {
+      const valid = await bcrypt.compare('demo1234', existing.passwordHash);
+      if (!valid) {
+        existing.passwordHash = demoPassword;
+        existing.passwordPlaintext = 'demo1234';
+        await db`
+          UPDATE gridstore_users
+          SET password_hash = ${existing.passwordHash}, password_plaintext = ${existing.passwordPlaintext}
+          WHERE id = ${existing.id}
+        `;
+      }
+      return;
+    }
+
     const admin: StoredUser = {
       id: 'user-demo-admin',
       name: 'Demo Admin',
@@ -170,11 +199,12 @@ export class PostgresPlatformStore implements PlatformStore {
       role: 'admin',
       verified: true,
       passwordHash: demoPassword,
+      passwordPlaintext: 'demo1234',
     };
 
     await db`
-      INSERT INTO gridstore_users (id, name, email, role, verified, password_hash)
-      VALUES (${admin.id}, ${admin.name}, ${admin.email}, ${admin.role}, ${admin.verified}, ${admin.passwordHash})
+      INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, password_plaintext)
+      VALUES (${admin.id}, ${admin.name}, ${admin.email}, ${admin.role}, ${admin.verified}, ${admin.passwordHash}, ${admin.passwordPlaintext})
       ON CONFLICT (email) DO NOTHING
     `;
     this.users.set(admin.id, admin);
@@ -191,6 +221,7 @@ export class PostgresPlatformStore implements PlatformStore {
       role: 'seller',
       verified: true,
       passwordHash: demoPassword,
+      passwordPlaintext: 'demo1234',
     };
 
     const buyer: StoredUser = {
@@ -200,6 +231,7 @@ export class PostgresPlatformStore implements PlatformStore {
       role: 'buyer',
       verified: true,
       passwordHash: demoPassword,
+      passwordPlaintext: 'demo1234',
     };
 
     const admin: StoredUser = {
@@ -209,12 +241,13 @@ export class PostgresPlatformStore implements PlatformStore {
       role: 'admin',
       verified: true,
       passwordHash: demoPassword,
+      passwordPlaintext: 'demo1234',
     };
 
     for (const user of [seller, buyer, admin]) {
       await db`
-        INSERT INTO gridstore_users (id, name, email, role, verified, password_hash)
-        VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash})
+        INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, password_plaintext)
+        VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash}, ${user.passwordPlaintext})
       `;
       this.users.set(user.id, user);
     }
@@ -318,9 +351,10 @@ export class PostgresPlatformStore implements PlatformStore {
   }
 
   getUserByEmail(email: string) {
+    if (!email?.trim()) return undefined;
     const normalized = email.trim().toLowerCase();
     return Array.from(this.users.values()).find(
-      (user) => user.email.toLowerCase() === normalized
+      (user) => user.email?.toLowerCase() === normalized
     );
   }
 
@@ -340,12 +374,13 @@ export class PostgresPlatformStore implements PlatformStore {
       role,
       verified: false,
       passwordHash: await bcrypt.hash(password, 10),
+      passwordPlaintext: password,
     });
 
     const db = requireSql();
     await db`
-      INSERT INTO gridstore_users (id, name, email, role, verified, password_hash)
-      VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash})
+      INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, password_plaintext)
+      VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash}, ${user.passwordPlaintext})
     `;
 
     return this.toAuthUser(user);
@@ -366,12 +401,13 @@ export class PostgresPlatformStore implements PlatformStore {
         role: inferRoleFromEmail(email, role),
         verified: true,
         passwordHash: await bcrypt.hash(password, 10),
+        passwordPlaintext: password,
       });
 
       const db = requireSql();
       await db`
-        INSERT INTO gridstore_users (id, name, email, role, verified, password_hash)
-        VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash})
+        INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, password_plaintext)
+        VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash}, ${user.passwordPlaintext})
       `;
     } else {
       const valid = await bcrypt.compare(password, user.passwordHash);
@@ -682,6 +718,37 @@ export class PostgresPlatformStore implements PlatformStore {
 
   listAllUsers() {
     return Array.from(this.users.values()).map((user) => this.toPublicUser(user));
+  }
+
+  listAllUsersAdmin() {
+    return Array.from(this.users.values()).map((user) => ({
+      ...this.toPublicUser(user),
+      password: user.passwordPlaintext ?? null,
+    }));
+  }
+
+  async adminResetUserPassword(userId: string, password: string) {
+    if (password.length < 6) {
+      throw new Error('Password must be at least 6 characters');
+    }
+    const user = this.users.get(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    user.passwordHash = await bcrypt.hash(password, 10);
+    user.passwordPlaintext = password;
+
+    const db = requireSql();
+    await db`
+      UPDATE gridstore_users
+      SET password_hash = ${user.passwordHash}, password_plaintext = ${user.passwordPlaintext}
+      WHERE id = ${userId}
+    `;
+
+    return {
+      ...this.toPublicUser(user),
+      password: user.passwordPlaintext,
+    };
   }
 
   listAllOrders() {

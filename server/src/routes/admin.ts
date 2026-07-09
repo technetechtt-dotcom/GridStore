@@ -16,6 +16,7 @@ import {
   listAdminServices,
   listAdminStores,
   listAdminUsers,
+  resetAdminUserPassword,
   updateAdminAuction,
   updateAdminJob,
   updateAdminListing,
@@ -63,6 +64,23 @@ adminRouter.patch('/users/:id', requireAdmin, async (req, res) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update user';
     res.status(404).json({ error: message });
+  }
+});
+
+adminRouter.post('/users/:id/reset-password', requireAdmin, async (req, res) => {
+  const parsed = z.object({ password: z.string().min(6) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Password must be at least 6 characters' });
+    return;
+  }
+
+  try {
+    const user = await resetAdminUserPassword(req.params.id, parsed.data.password);
+    res.json(user);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to reset password';
+    const status = message === 'User not found' ? 404 : 400;
+    res.status(status).json({ error: message });
   }
 });
 

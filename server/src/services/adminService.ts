@@ -9,6 +9,7 @@ import type {
   AdminAuctionRow,
   AdminStats,
   AdminStoreRow,
+  AdminUserRow,
   AppUser,
   CatalogItemStatus,
   Job,
@@ -42,10 +43,6 @@ export interface AdminPaymentRow {
   status: string;
   buyer: string;
   createdAt: string;
-}
-
-export interface AdminUserRow extends AppUser {
-  createdAt?: string;
 }
 
 export async function getAdminStats(): Promise<AdminStats> {
@@ -123,7 +120,14 @@ export async function getAdminAnalytics(): Promise<AdminAnalyticsPoint[]> {
 }
 
 export async function listAdminUsers(): Promise<AdminUserRow[]> {
-  return platformStore.listAllUsers();
+  return platformStore.listAllUsersAdmin();
+}
+
+export async function resetAdminUserPassword(
+  userId: string,
+  password: string
+): Promise<AdminUserRow> {
+  return platformStore.adminResetUserPassword(userId, password);
 }
 
 export async function updateAdminUser(

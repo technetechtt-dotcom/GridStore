@@ -140,6 +140,12 @@ export interface AuctionBid {
 
 export interface StoredUser extends AppUser {
   passwordHash: string;
+  passwordPlaintext?: string | null;
+}
+
+export interface AdminUserRow extends AppUser {
+  password: string | null;
+  createdAt?: string;
 }
 
 export interface NotificationItem {

@@ -32,6 +32,14 @@ import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../../components/ui/dialog';
+import { Input } from '../../components/ui/input';
+import {
   Table,
   TableBody,
   TableCell,
@@ -50,6 +58,7 @@ import {
   apiGetAdminStats,
   apiGetAdminStores,
   apiGetAdminUsers,
+  apiResetAdminUserPassword,
   apiUpdateAdminListing,
   apiUpdateAdminOrder,
   apiUpdateAdminReport,
@@ -60,6 +69,7 @@ import {
   type AdminPaymentRow,
   type AdminStats,
   type AdminStoreRow,
+  type AdminUserRow,
 } from '../../services/adminApi';
 import type { AppUser, SellerListing, StoreProfile, TrustReport } from '../../types';
 
@@ -265,6 +275,9 @@ export function AdminDashboard() {
 
 export function AdminUsers() {
   const { data, loading, error, refresh } = useAdminResource(apiGetAdminUsers);
+  const [resetUser, setResetUser] = React.useState<AdminUserRow | null>(null);
+  const [newPassword, setNewPassword] = React.useState('');
+  const [resetting, setResetting] = React.useState(false);
 
   const toggleVerified = async (user: AppUser) => {
     try {
@@ -273,6 +286,36 @@ export function AdminUsers() {
       void refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Update failed');
+    }
+  };
+
+  const openResetDialog = (user: AdminUserRow) => {
+    setResetUser(user);
+    setNewPassword('');
+  };
+
+  const closeResetDialog = () => {
+    setResetUser(null);
+    setNewPassword('');
+  };
+
+  const submitPasswordReset = async () => {
+    if (!resetUser) return;
+    if (newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+
+    setResetting(true);
+    try {
+      await apiResetAdminUserPassword(resetUser.id, newPassword);
+      toast.success(`Password reset for ${resetUser.name}`);
+      closeResetDialog();
+      void refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Password reset failed');
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -292,6 +335,7 @@ export function AdminUsers() {
               <TableRow>
                 <TableHead>User</TableHead>
                 <TableHead>Role</TableHead>
+                <TableHead>Password</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -307,11 +351,21 @@ export function AdminUsers() {
                   </TableCell>
                   <TableCell>{user.role}</TableCell>
                   <TableCell>
+                    {user.password ? (
+                      <code className="rounded bg-muted px-2 py-1 text-xs">{user.password}</code>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Not stored</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <Badge variant={user.verified ? 'default' : 'secondary'}>
                       {user.verified ? 'Verified' : 'Pending'}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right space-x-2">
+                    <Button size="sm" variant="outline" onClick={() => openResetDialog(user)}>
+                      Reset password
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => void toggleVerified(user)}>
                       {user.verified ? 'Revoke' : 'Verify'}
                     </Button>
@@ -322,6 +376,35 @@ export function AdminUsers() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(resetUser)} onOpenChange={(open) => !open && closeResetDialog()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset password</DialogTitle>
+            <DialogDescription>
+              Set a new password for {resetUser?.name}. The new password will be visible in the
+              users table.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              type="password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              placeholder="New password (min 6 characters)"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={closeResetDialog} disabled={resetting}>
+                Cancel
+              </Button>
+              <Button onClick={() => void submitPasswordReset()} disabled={resetting}>
+                {resetting ? 'Saving…' : 'Save password'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

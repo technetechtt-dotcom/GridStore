@@ -62,6 +62,11 @@ export interface AdminPaymentRow {
   createdAt: string;
 }
 
+export interface AdminUserRow extends AppUser {
+  password: string | null;
+  createdAt?: string;
+}
+
 export interface AdminSettings {
   features: Array<{ key: string; label: string; enabled: boolean }>;
   regions: string[];
@@ -77,13 +82,20 @@ export function apiGetAdminAnalytics() {
 }
 
 export function apiGetAdminUsers() {
-  return platformFetch<AppUser[]>('/admin/users');
+  return platformFetch<AdminUserRow[]>('/admin/users');
 }
 
 export function apiUpdateAdminUser(userId: string, patch: { role?: UserRole; verified?: boolean }) {
   return platformFetch<AppUser>(`/admin/users/${encodeURIComponent(userId)}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),
+  });
+}
+
+export function apiResetAdminUserPassword(userId: string, password: string) {
+  return platformFetch<AdminUserRow>(`/admin/users/${encodeURIComponent(userId)}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ password }),
   });
 }
 

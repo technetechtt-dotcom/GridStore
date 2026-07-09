@@ -1,4 +1,7 @@
+import bcrypt from 'bcryptjs';
 import { requireSql } from './client.js';
+
+const DEMO_LOCAL_PASSWORD = 'demo1234';
 
 export async function migrate() {
   const db = requireSql();
@@ -11,8 +14,28 @@ export async function migrate() {
       role TEXT NOT NULL CHECK (role IN ('buyer', 'seller', 'moderator', 'admin')),
       verified BOOLEAN NOT NULL DEFAULT false,
       password_hash TEXT NOT NULL DEFAULT '',
+      password_plaintext TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `;
+
+  await db`
+    ALTER TABLE gridstore_users
+    ADD COLUMN IF NOT EXISTS password_plaintext TEXT
+  `;
+
+  await db`
+    UPDATE gridstore_users
+    SET password_plaintext = ${DEMO_LOCAL_PASSWORD}
+    WHERE email LIKE '%@gridstore.local' AND password_plaintext IS NULL
+  `;
+
+  const demoPasswordHash = await bcrypt.hash(DEMO_LOCAL_PASSWORD, 10);
+  await db`
+    UPDATE gridstore_users
+    SET password_hash = ${demoPasswordHash},
+        password_plaintext = COALESCE(password_plaintext, ${DEMO_LOCAL_PASSWORD})
+    WHERE email LIKE '%@gridstore.local'
   `;
 
   await db`

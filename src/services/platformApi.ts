@@ -62,8 +62,8 @@ export function isPlatformApiAvailable() {
 /** When true, auth falls back to local demo login instead of surfacing the API error. */
 export function shouldUseLocalAuthFallback(error: unknown) {
   if (getApiMode() === 'demo') return true;
-  if (!(error instanceof Error)) return false;
-  const message = error.message.toLowerCase();
+  const message = String(error instanceof Error ? error.message : error ?? '').toLowerCase();
+  if (!message) return false;
   if (message.includes('failed to fetch') || message.includes('network') || message.includes('abort')) {
     return true;
   }

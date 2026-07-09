@@ -8,7 +8,10 @@ export const authRouter = Router();
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
-  role: z.enum(['buyer', 'seller', 'moderator', 'admin']).optional(),
+  role: z
+    .enum(['buyer', 'seller', 'moderator', 'admin'])
+    .optional()
+    .catch(undefined),
 });
 
 const signupSchema = z.object({

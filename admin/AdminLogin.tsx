@@ -19,6 +19,7 @@ export function AdminLogin() {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (loading) return;
     setLoading(true);
     try {
       const user = await login(email, password, 'admin');

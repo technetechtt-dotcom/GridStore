@@ -1,4 +1,5 @@
 import type {
+  AdminUserRow,
   AppUser,
   AuthUser,
   Order,
@@ -63,10 +64,12 @@ export interface PlatformStore {
   ): Promise<SellerListing>;
   toggleListingPause(userId: string, listingId: string): Promise<SellerListing>;
   listAllUsers(): AppUser[];
+  listAllUsersAdmin(): AdminUserRow[];
   listAllOrders(): Array<Order & { buyerName: string; buyerEmail: string }>;
   listAllListingsAdmin(): SellerListing[];
   listAllAuctionsAdmin(): SellerListing[];
   adminUpdateUser(userId: string, patch: { role?: UserRole; verified?: boolean }): Promise<AppUser>;
+  adminResetUserPassword(userId: string, password: string): Promise<AdminUserRow>;
   adminUpdateListingStatus(listingId: string, status: SellerListing['status']): Promise<SellerListing>;
   adminUpdateAuction(
     listingId: string,
