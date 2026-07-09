@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { createApp } from './app.js';
+import { createApp, setStoresReady } from './app.js';
 import { initPlatformStore } from './store/index.js';
 import { initUserFeaturesStore } from './store/userFeatures/index.js';
 
@@ -33,6 +33,21 @@ describe('gridstore api', () => {
     else process.env.PUBLIC_WEB_URL = previousWeb;
     if (previousAdmin === undefined) delete process.env.PUBLIC_ADMIN_URL;
     else process.env.PUBLIC_ADMIN_URL = previousAdmin;
+  });
+
+  it('allows health checks while stores are still starting', async () => {
+    setStoresReady(false);
+    const startingApp = createApp();
+
+    const health = await request(startingApp).get('/api/health');
+    const blocked = await request(startingApp).get('/api/products');
+
+    setStoresReady(true);
+
+    expect(health.status).toBe(200);
+    expect(health.body.status).toBe('ok');
+    expect(blocked.status).toBe(503);
+    expect(blocked.body.status).toBe('starting');
   });
 
   it('lists products with category filter', async () => {

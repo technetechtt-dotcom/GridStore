@@ -19,6 +19,8 @@ describe('auth fallback', () => {
     vi.mocked(getApiMode).mockReturnValue('live');
     expect(shouldUseLocalAuthFallback(new Error('Failed to fetch'))).toBe(true);
     expect(shouldUseLocalAuthFallback(new Error('HTTP 404: Not found'))).toBe(true);
+    expect(shouldUseLocalAuthFallback(new Error('HTTP 502: Bad Gateway'))).toBe(true);
+    expect(shouldUseLocalAuthFallback(new Error('HTTP 503: Service Unavailable'))).toBe(true);
   });
 
   it('falls back in demo mode', () => {

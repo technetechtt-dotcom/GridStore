@@ -40,7 +40,7 @@ import {
   apiRespondToOffer,
   apiSubmitOffer,
 } from '../services/tradeApi';
-import { subscribeApiMode } from '../services/apiConnection';
+import { getConnectionStatus, subscribeApiMode, subscribeConnectionStatus } from '../services/apiConnection';
 import type {
   AppUser,
   BookingRequest,
@@ -368,7 +368,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshFromApi = useCallback(async () => {
-    if (!isPlatformApiAvailable() || !getAuthToken()) return;
+    if (!isPlatformApiAvailable() || !getAuthToken() || getConnectionStatus() !== 'connected') return;
 
     try {
       const synced = await syncPlatformData();
@@ -381,14 +381,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     return subscribeApiMode((mode) => {
-      if (mode === 'live' && getAuthToken()) {
+      if (mode === 'live' && getConnectionStatus() === 'connected' && getAuthToken()) {
         void refreshFromApi();
       }
     });
   }, [refreshFromApi]);
 
   useEffect(() => {
-    void (async () => {
+    let cancelled = false;
+
+    const restoreSession = async () => {
+      if (getConnectionStatus() !== 'connected') return;
+
       hydrateAuthToken(user);
       const token = getAuthToken();
       if (!token) {
@@ -398,17 +402,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         return;
       }
+
       try {
         const me = await apiGetMe();
+        if (cancelled) return;
         setUser(me);
         persist({ user: me });
       } catch {
+        if (cancelled) return;
         setAuthToken(null);
         setUser(null);
         persist({ user: null });
       }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- restore session once on mount
+    };
+
+    void restoreSession();
+    const unsubscribe = subscribeConnectionStatus((status) => {
+      if (status === 'connected') {
+        void restoreSession();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restore session when API connects
   }, []);
 
   useEffect(() => {

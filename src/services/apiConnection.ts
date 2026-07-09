@@ -71,9 +71,12 @@ export function subscribeConnectionStatus(listener: (status: ConnectionStatus) =
   return () => connectionListeners.delete(listener);
 }
 
-export async function checkApiConnection() {
-  setApiMode('checking');
-  setConnectionStatus('checking');
+export async function checkApiConnection(options: { silent?: boolean } = {}) {
+  const { silent = false } = options;
+  if (!silent) {
+    setApiMode('checking');
+    setConnectionStatus('checking');
+  }
   lastError = null;
 
   const controller = new AbortController();
@@ -123,7 +126,7 @@ export function startConnectionMonitor(intervalMs = MONITOR_INTERVAL_MS) {
   void checkApiConnection();
 
   const timer = globalThis.setInterval(() => {
-    void checkApiConnection();
+    void checkApiConnection({ silent: true });
   }, intervalMs);
 
   return () => globalThis.clearInterval(timer);

@@ -67,6 +67,14 @@ export function shouldUseLocalAuthFallback(error: unknown) {
   if (message.includes('failed to fetch') || message.includes('network') || message.includes('abort')) {
     return true;
   }
+  if (
+    message.includes('502') ||
+    message.includes('503') ||
+    message.includes('bad gateway') ||
+    message.includes('service unavailable')
+  ) {
+    return true;
+  }
   if (message.includes('404') || message.includes('not found')) {
     return true;
   }
@@ -529,6 +537,20 @@ export async function apiUpdateStore(
 }
 
 export async function syncPlatformData() {
+  if (syncInFlight) {
+    return syncInFlight;
+  }
+
+  syncInFlight = syncPlatformDataInternal().finally(() => {
+    syncInFlight = null;
+  });
+
+  return syncInFlight;
+}
+
+let syncInFlight: ReturnType<typeof syncPlatformDataInternal> | null = null;
+
+async function syncPlatformDataInternal() {
   const token = getAuthToken();
   const [
     activeListings,
@@ -545,7 +567,7 @@ export async function syncPlatformData() {
     trustReports,
     sellerStores,
   ] = await Promise.all([
-    apiGetActiveListings(),
+    apiGetActiveListings().catch(() => [] as SellerListing[]),
     token ? apiGetMyListings().catch(() => [] as SellerListing[]) : Promise.resolve([]),
     token ? apiGetOrders().catch(() => [] as Order[]) : Promise.resolve([]),
     token ? apiGetMe().catch(() => null) : Promise.resolve(null),

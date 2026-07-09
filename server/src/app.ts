@@ -23,6 +23,16 @@ import { servicesRouter } from './routes/services.js';
 import { storesRouter } from './routes/stores.js';
 import { wishlistRouter } from './routes/wishlist.js';
 
+let storesReady = true;
+
+export function setStoresReady(ready: boolean) {
+  storesReady = ready;
+}
+
+export function areStoresReady() {
+  return storesReady;
+}
+
 function isAllowedCorsOrigin(origin?: string) {
   if (!origin) return true;
 
@@ -73,6 +83,18 @@ export function createApp() {
 
   const api = express.Router();
   api.use(healthRouter);
+  api.use((req, res, next) => {
+    if (storesReady || req.path === '/health') {
+      next();
+      return;
+    }
+
+    res.status(503).json({
+      error: 'API is starting up',
+      status: 'starting',
+      service: 'gridstore-api',
+    });
+  });
   api.use('/auth', authRouter);
   api.use('/offers', offersRouter);
   api.use('/auctions', auctionsRouter);
