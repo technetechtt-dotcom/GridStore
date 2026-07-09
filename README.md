@@ -13,6 +13,31 @@ Frontend: `http://localhost:5173` · Ops dashboard: `http://localhost:5174` · A
 
 Copy `.env.example` to `.env` for local frontend overrides.
 
+**Connect to the live API locally:**
+
+```bash
+# Terminal 1 — API
+npm run dev:server
+
+# Terminal 2 — marketplace + ops dashboard
+npm run dev
+npm run dev:admin
+```
+
+Or run everything together:
+
+```bash
+npm run dev:all
+```
+
+Set in `.env`:
+
+```env
+VITE_API_BASE_URL=http://localhost:4000/api
+```
+
+If you still see the demo-mode banner, confirm http://localhost:4000/api/health returns JSON.
+
 ## Ops dashboard (separate deployment)
 
 The platform ops/admin dashboard can run as its own static site, separate from the marketplace frontend.

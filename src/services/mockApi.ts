@@ -60,7 +60,7 @@ function markApiDemo(error: unknown) {
 export async function probeApiConnection() {
   setApiMode('checking');
   try {
-    await fetchJson<Record<string, unknown>[]>(endpoints.products);
+    await fetchJson<Record<string, unknown>>('/health');
     markApiLive();
   } catch (error) {
     markApiDemo(error);
