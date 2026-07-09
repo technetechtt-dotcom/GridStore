@@ -25,7 +25,9 @@ import {
   apiUpdateListing,
   apiUpdateProfile,
   apiUpdateStore,
+  AUTH_SESSION_EXPIRED_EVENT,
   getAuthToken,
+  hydrateAuthToken,
   isPlatformApiAvailable,
   setAuthToken,
   shouldUseLocalAuthFallback,
@@ -38,7 +40,7 @@ import {
   apiRespondToOffer,
   apiSubmitOffer,
 } from '../services/tradeApi';
-import { probeApiConnection, subscribeApiMode } from '../services/mockApi';
+import { subscribeApiMode } from '../services/apiConnection';
 import type {
   AppUser,
   BookingRequest,
@@ -280,7 +282,11 @@ function nowLabel() {
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const initialState = useMemo(() => loadState(), []);
+  const initialState = useMemo(() => {
+    const loaded = loadState();
+    hydrateAuthToken(loaded.user);
+    return loaded;
+  }, []);
 
   const [user, setUser] = useState<AppUser | null>(initialState.user);
   const [cart, setCart] = useState<Record<string, number>>(initialState.cart);
@@ -374,7 +380,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [sellerListings, user, notifications, messageThreads]);
 
   useEffect(() => {
-    void probeApiConnection();
     return subscribeApiMode((mode) => {
       if (mode === 'live') {
         void refreshFromApi();
@@ -384,8 +389,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     void (async () => {
+      hydrateAuthToken(user);
       const token = getAuthToken();
-      if (!token) return;
+      if (!token) {
+        if (user && isPlatformApiAvailable()) {
+          setUser(null);
+          persist({ user: null });
+        }
+        return;
+      }
       try {
         const me = await apiGetMe();
         setUser(me);
@@ -399,15 +411,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- restore session once on mount
   }, []);
 
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setUser(null);
+      persist({ user: null });
+    };
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
+    return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- global auth expiry handler
+  }, []);
+
   const completeAuth = async (nextUser: AppUser) => {
-    setUser(nextUser);
+    const token = getAuthToken() ?? nextUser.sessionToken ?? null;
+    if (token) {
+      setAuthToken(token);
+    }
+    const userWithToken = token ? { ...nextUser, sessionToken: token } : nextUser;
+    setUser(userWithToken);
     try {
       const synced = await syncPlatformData();
-      applySyncedState(synced, nextUser);
-      return synced.user ?? nextUser;
+      applySyncedState(synced, userWithToken);
+      return synced.user ?? userWithToken;
     } catch {
-      persist({ user: nextUser });
-      return nextUser;
+      persist({ user: userWithToken });
+      return userWithToken;
     }
   };
 
@@ -423,6 +450,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sessionToken: createSessionToken(),
       verified: true,
     };
+    setAuthToken(nextUser.sessionToken ?? null);
     setUser(nextUser);
     persist({ user: nextUser });
     return nextUser;
@@ -451,11 +479,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const login = async (email: string, password: string, role: UserRole = 'buyer') => {
+    const requiresApi = role === 'admin' || role === 'moderator';
     try {
       const nextUser = await apiLogin(email, password, role);
       return completeAuth(nextUser);
     } catch (error) {
-      if (!shouldUseLocalAuthFallback(error)) {
+      if (requiresApi || !shouldUseLocalAuthFallback(error)) {
         throw error;
       }
       return loginLocal(email, password, role);

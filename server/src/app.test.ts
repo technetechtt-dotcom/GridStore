@@ -17,10 +17,22 @@ describe('gridstore api', () => {
     await initStoresStore();
   });
 
-  it('returns health status', async () => {
+  it('returns health status with platform links', async () => {
+    const previousWeb = process.env.PUBLIC_WEB_URL;
+    const previousAdmin = process.env.PUBLIC_ADMIN_URL;
+    process.env.PUBLIC_WEB_URL = 'https://marketplace.test';
+    process.env.PUBLIC_ADMIN_URL = 'https://ops.test';
+
     const response = await request(app).get('/api/health');
     expect(response.status).toBe(200);
     expect(response.body.status).toBe('ok');
+    expect(response.body.marketplaceUrl).toBe('https://marketplace.test');
+    expect(response.body.opsDashboardUrl).toBe('https://ops.test');
+
+    if (previousWeb === undefined) delete process.env.PUBLIC_WEB_URL;
+    else process.env.PUBLIC_WEB_URL = previousWeb;
+    if (previousAdmin === undefined) delete process.env.PUBLIC_ADMIN_URL;
+    else process.env.PUBLIC_ADMIN_URL = previousAdmin;
   });
 
   it('lists products with category filter', async () => {

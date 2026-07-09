@@ -4,6 +4,14 @@ export function getApiBaseUrl() {
   return (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
 }
 
+export function getPlatformUrls() {
+  return {
+    marketplace: import.meta.env.VITE_PUBLIC_WEB_URL ?? 'http://localhost:5173',
+    opsDashboard: import.meta.env.VITE_PUBLIC_ADMIN_URL ?? 'http://localhost:5174',
+    api: getApiBaseUrl(),
+  };
+}
+
 function getBaseOrigin() {
   if (typeof globalThis.location !== 'undefined' && globalThis.location.origin) {
     return globalThis.location.origin;

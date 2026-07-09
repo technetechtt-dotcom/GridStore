@@ -1,6 +1,14 @@
 import { jobs, products, rentals, services, stores } from '../data/catalog';
 import type { Job, Product, Rental, Service, StoreProfile } from '../types';
+import { notifyApiRequestFailure, notifyApiRequestSuccess } from './apiConnection';
 import { buildApiUrl, parseJsonResponse } from './apiUrl';
+
+export {
+  getApiMode,
+  probeApiConnection,
+  subscribeApiMode,
+  type ApiMode,
+} from './apiConnection';
 
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? '10000');
 
@@ -26,46 +34,6 @@ const endpoints: ApiEndpoints = {
 
 type QueryPrimitive = string | number | boolean;
 type QueryParams = Record<string, QueryPrimitive | undefined>;
-
-export type ApiMode = 'checking' | 'live' | 'demo';
-
-let apiMode: ApiMode = 'checking';
-let fallbackNoticeShown = false;
-const apiModeListeners = new Set<(mode: ApiMode) => void>();
-
-export function getApiMode() {
-  return apiMode;
-}
-
-export function subscribeApiMode(listener: (mode: ApiMode) => void) {
-  apiModeListeners.add(listener);
-  listener(apiMode);
-  return () => apiModeListeners.delete(listener);
-}
-
-function setApiMode(mode: ApiMode) {
-  apiMode = mode;
-  apiModeListeners.forEach((listener) => listener(mode));
-}
-
-function markApiLive() {
-  setApiMode('live');
-}
-
-function markApiDemo(error: unknown) {
-  setApiMode('demo');
-  showFallbackNotice(error);
-}
-
-export async function probeApiConnection() {
-  setApiMode('checking');
-  try {
-    await fetchJson<Record<string, unknown>>('/health');
-    markApiLive();
-  } catch (error) {
-    markApiDemo(error);
-  }
-}
 
 function snakeValue(value: unknown): string {
   return typeof value === 'string' ? value : '';
@@ -115,12 +83,6 @@ async function fetchJson<T>(path: string, query?: QueryParams, init?: RequestIni
   } finally {
     globalThis.clearTimeout(timeout);
   }
-}
-
-function showFallbackNotice(error: unknown) {
-  if (fallbackNoticeShown) return;
-  fallbackNoticeShown = true;
-  console.warn('[api] Falling back to local catalog data.', error);
 }
 
 function filterProducts(query: string, category: string) {
@@ -215,10 +177,10 @@ export async function getMarketplaceProducts(query = '', category = ''): Promise
       q: query || undefined,
       category: category && category !== 'all' ? category : undefined,
     });
-    markApiLive();
+    notifyApiRequestSuccess();
     return rows.map(normalizeProduct);
   } catch (error) {
-    markApiDemo(error);
+    notifyApiRequestFailure(error);
     return filterProducts(query, category);
   }
 }
@@ -227,10 +189,10 @@ export async function getProductById(id: string): Promise<Product | null> {
   try {
     const path = endpoints.productById.replace(':id', encodeURIComponent(id));
     const row = await fetchJson<Record<string, unknown> | null>(path);
-    markApiLive();
+    notifyApiRequestSuccess();
     return row ? normalizeProduct(row) : null;
   } catch (error) {
-    markApiDemo(error);
+    notifyApiRequestFailure(error);
     return products.find((item) => item.id === id) ?? null;
   }
 }
@@ -238,10 +200,10 @@ export async function getProductById(id: string): Promise<Product | null> {
 export async function getServices(query = ''): Promise<Service[]> {
   try {
     const rows = await fetchJson<Record<string, unknown>[]>(endpoints.services, { q: query || undefined });
-    markApiLive();
+    notifyApiRequestSuccess();
     return rows.map(normalizeService);
   } catch (error) {
-    markApiDemo(error);
+    notifyApiRequestFailure(error);
     if (!query.trim()) return services;
     return services.filter((item) =>
       [item.title, item.provider, item.category, item.location].some((field) =>
@@ -255,10 +217,10 @@ export async function getServiceById(id: string): Promise<Service | null> {
   try {
     const path = `/services/${encodeURIComponent(id)}`;
     const row = await fetchJson<Record<string, unknown> | null>(path);
-    markApiLive();
+    notifyApiRequestSuccess();
     return row ? normalizeService(row) : null;
   } catch (error) {
-    markApiDemo(error);
+    notifyApiRequestFailure(error);
     return services.find((item) => item.id === id) ?? null;
   }
 }
@@ -266,10 +228,10 @@ export async function getServiceById(id: string): Promise<Service | null> {
 export async function getRentals(query = ''): Promise<Rental[]> {
   try {
     const rows = await fetchJson<Record<string, unknown>[]>(endpoints.rentals, { q: query || undefined });
-    markApiLive();
+    notifyApiRequestSuccess();
     return rows.map(normalizeRental);
   } catch (error) {
-    markApiDemo(error);
+    notifyApiRequestFailure(error);
     if (!query.trim()) return rentals;
     return rentals.filter((item) =>
       [item.title, item.owner, item.category, item.location].some((field) =>
@@ -283,10 +245,10 @@ export async function getRentalById(id: string): Promise<Rental | null> {
   try {
     const path = `/rentals/${encodeURIComponent(id)}`;
     const row = await fetchJson<Record<string, unknown> | null>(path);
-    markApiLive();
+    notifyApiRequestSuccess();
     return row ? normalizeRental(row) : null;
   } catch (error) {
-    markApiDemo(error);
+    notifyApiRequestFailure(error);
     return rentals.find((item) => item.id === id) ?? null;
   }
 }
@@ -294,10 +256,10 @@ export async function getRentalById(id: string): Promise<Rental | null> {
 export async function getJobs(query = ''): Promise<Job[]> {
   try {
     const rows = await fetchJson<Record<string, unknown>[]>(endpoints.jobs, { q: query || undefined });
-    markApiLive();
+    notifyApiRequestSuccess();
     return rows.map(normalizeJob);
   } catch (error) {
-    markApiDemo(error);
+    notifyApiRequestFailure(error);
     if (!query.trim()) return jobs;
     return jobs.filter((item) =>
       [item.title, item.company, item.location, item.type].some((field) =>
@@ -311,10 +273,10 @@ export async function getJobById(id: string): Promise<Job | null> {
   try {
     const path = `/jobs/${encodeURIComponent(id)}`;
     const row = await fetchJson<Record<string, unknown> | null>(path);
-    markApiLive();
+    notifyApiRequestSuccess();
     return row ? normalizeJob(row) : null;
   } catch (error) {
-    markApiDemo(error);
+    notifyApiRequestFailure(error);
     return jobs.find((item) => item.id === id) ?? null;
   }
 }
@@ -322,10 +284,10 @@ export async function getJobById(id: string): Promise<Job | null> {
 export async function getStores(query = ''): Promise<StoreProfile[]> {
   try {
     const rows = await fetchJson<Record<string, unknown>[]>(endpoints.stores, { q: query || undefined });
-    markApiLive();
+    notifyApiRequestSuccess();
     return rows.map(normalizeStore);
   } catch (error) {
-    markApiDemo(error);
+    notifyApiRequestFailure(error);
     if (!query.trim()) return stores;
     return stores.filter((item) =>
       [item.name, item.category, item.location].some((field) =>
@@ -339,10 +301,10 @@ export async function getStoreById(id: string): Promise<StoreProfile | null> {
   try {
     const path = `/stores/${encodeURIComponent(id)}`;
     const row = await fetchJson<Record<string, unknown> | null>(path);
-    markApiLive();
+    notifyApiRequestSuccess();
     return row ? normalizeStore(row) : null;
   } catch (error) {
-    markApiDemo(error);
+    notifyApiRequestFailure(error);
     return stores.find((item) => item.id === id) ?? null;
   }
 }
@@ -355,17 +317,17 @@ export async function askAiAssistant(prompt: string): Promise<string> {
     });
 
     if (typeof payload === 'string') {
-      markApiLive();
+      notifyApiRequestSuccess();
       return payload;
     }
     if (payload.answer) {
-      markApiLive();
+      notifyApiRequestSuccess();
       return payload.answer;
     }
-    markApiLive();
+    notifyApiRequestSuccess();
     return 'AI assistant responded, but no answer text was returned.';
   } catch (error) {
-    markApiDemo(error);
+    notifyApiRequestFailure(error);
     if (!prompt.trim()) {
       return 'Tell me what you need, your budget, and your location and I will suggest a bundle.';
     }

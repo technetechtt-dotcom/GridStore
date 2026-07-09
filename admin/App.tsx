@@ -3,6 +3,8 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { ThemeProvider } from '../src/components/theme/ThemeProvider';
 import { AppProvider } from '../src/context/AppContext';
+import { PlatformConnectionBanner } from '../src/components/common/PlatformConnectionBanner';
+import { PlatformConnectionProvider } from '../src/providers/PlatformConnectionProvider';
 import { AdminLayout } from '../src/pages/admin/AdminLayout';
 import {
   AdminAiMonitoring,
@@ -23,6 +25,8 @@ export function AdminApp() {
   return (
     <ThemeProvider>
       <AppProvider>
+        <PlatformConnectionProvider>
+        <PlatformConnectionBanner />
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<AdminLogin />} />
@@ -43,6 +47,7 @@ export function AdminApp() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
+        </PlatformConnectionProvider>
         <Toaster position="top-right" richColors closeButton />
       </AppProvider>
     </ThemeProvider>

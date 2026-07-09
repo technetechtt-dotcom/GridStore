@@ -34,9 +34,13 @@ Set in `.env`:
 
 ```env
 VITE_API_BASE_URL=http://localhost:4000/api
+VITE_PUBLIC_WEB_URL=http://localhost:5173
+VITE_PUBLIC_ADMIN_URL=http://localhost:5174
 ```
 
-If you still see the demo-mode banner, confirm http://localhost:4000/api/health returns JSON.
+Both the marketplace and ops dashboard show a **platform connection** banner at the top. When all three services are linked, it turns green with quick links to the API, marketplace, and ops dashboard. If the API is unreachable, demo catalogue data is used until you click **Retry connection** (auto-retry runs every 20s).
+
+If the banner stays disconnected, confirm http://localhost:4000/api/health returns JSON.
 
 ## Ops dashboard (separate deployment)
 

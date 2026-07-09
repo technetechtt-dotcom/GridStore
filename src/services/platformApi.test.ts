@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getApiMode } from './mockApi';
+import { getApiMode } from './apiConnection';
 import { shouldUseLocalAuthFallback } from './platformApi';
 
-vi.mock('./mockApi', () => ({
+vi.mock('./apiConnection', () => ({
   getApiMode: vi.fn(() => 'live'),
 }));
 

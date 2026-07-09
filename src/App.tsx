@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { ThemeProvider } from './components/theme/ThemeProvider';
 import { AppProvider } from './context/AppContext';
+import { PlatformConnectionProvider } from './providers/PlatformConnectionProvider';
 import { AppLayout } from './components/layout/AppLayout';
 import { Home } from './pages/Home';
 import {
@@ -61,6 +62,7 @@ export function App() {
   return (
     <ThemeProvider>
       <AppProvider>
+        <PlatformConnectionProvider>
         <BrowserRouter>
           <Routes>
             <Route element={<AppLayout />}>
@@ -182,6 +184,7 @@ export function App() {
             </Route>
           </Routes>
         </BrowserRouter>
+        </PlatformConnectionProvider>
         <Toaster position="top-right" richColors closeButton />
       </AppProvider>
     </ThemeProvider>

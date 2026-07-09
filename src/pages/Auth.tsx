@@ -47,7 +47,13 @@ export function Login() {
       setEmail(rememberedEmail);
       setRememberMe(true);
     }
-  }, []);
+    if (from?.startsWith('/admin')) {
+      setRole('admin');
+      if (!rememberedEmail) {
+        setEmail('admin@gridstore.local');
+      }
+    }
+  }, [from]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

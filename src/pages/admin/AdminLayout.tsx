@@ -1,9 +1,9 @@
-import { NavLink, Outlet } from 'react-router-dom';
 import {
   Activity,
   Bot,
   Flag,
   LayoutDashboard,
+  Loader2,
   Package,
   Settings,
   Shield,
@@ -11,6 +11,8 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
+import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { useOpsSession } from '../../hooks/useOpsSession';
 import { adminPath } from '../../lib/adminPaths';
 import { cn } from '../../lib/utils';
 import { PageHeader } from '../../components/design-system/PageHeader';
@@ -29,6 +31,22 @@ const ADMIN_NAV = [
 ];
 
 export function AdminLayout() {
+  const location = useLocation();
+  const { ready, authenticated, requiresApiAuth } = useOpsSession();
+
+  if (!ready) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center text-muted-foreground">
+        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+        Verifying API session...
+      </div>
+    );
+  }
+
+  if (requiresApiAuth && !authenticated) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
       <PageHeader

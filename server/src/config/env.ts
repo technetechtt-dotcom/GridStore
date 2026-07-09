@@ -32,4 +32,6 @@ export const env = {
     process.env.VITEST === 'true' || process.env.NODE_ENV === 'test'
       ? ''
       : (process.env.DATABASE_URL ?? ''),
+  publicWebUrl: process.env.PUBLIC_WEB_URL ?? 'http://localhost:5173',
+  publicAdminUrl: process.env.PUBLIC_ADMIN_URL ?? 'http://localhost:5174',
 };

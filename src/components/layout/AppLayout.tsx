@@ -3,7 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { Footer } from './Footer';
 import { MobileBottomNav } from './MobileBottomNav';
-import { DemoModeBanner } from '../common/DemoModeBanner';
+import { PlatformConnectionBanner } from '../common/PlatformConnectionBanner';
 import { CommandPalette } from './CommandPalette';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useApp } from '../../context/AppContext';
@@ -129,7 +129,7 @@ export function AppLayout() {
   }, [pathname]);
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground selection:bg-primary/30">
-      <DemoModeBanner />
+      <PlatformConnectionBanner />
       <Header />
       <CommandPalette />
       <main className="flex-1 pb-16 md:pb-0">

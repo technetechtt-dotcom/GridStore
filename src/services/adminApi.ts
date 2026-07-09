@@ -1,32 +1,5 @@
 import type { AppUser, Order, SellerListing, TrustReport, UserRole } from '../types';
-import { buildApiUrl, parseJsonResponse } from './apiUrl';
-import { getAuthToken } from './platformApi';
-
-async function adminFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getAuthToken();
-  const response = await fetch(buildApiUrl(path), {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
-
-  if (!response.ok) {
-    let message = `HTTP ${response.status}`;
-    try {
-      const body = await parseJsonResponse<{ error?: string }>(response.clone());
-      if (body.error) message = body.error;
-    } catch {
-      // ignore
-    }
-    throw new Error(message);
-  }
-
-  if (response.status === 204) return undefined as T;
-  return parseJsonResponse<T>(response);
-}
+import { platformFetch } from './platformApi';
 
 export interface AdminStats {
   totalUsers: number;
@@ -65,64 +38,64 @@ export interface AdminSettings {
 }
 
 export function apiGetAdminStats() {
-  return adminFetch<AdminStats>('/admin/stats');
+  return platformFetch<AdminStats>('/admin/stats');
 }
 
 export function apiGetAdminAnalytics() {
-  return adminFetch<AdminAnalyticsPoint[]>('/admin/analytics');
+  return platformFetch<AdminAnalyticsPoint[]>('/admin/analytics');
 }
 
 export function apiGetAdminUsers() {
-  return adminFetch<AppUser[]>('/admin/users');
+  return platformFetch<AppUser[]>('/admin/users');
 }
 
 export function apiUpdateAdminUser(userId: string, patch: { role?: UserRole; verified?: boolean }) {
-  return adminFetch<AppUser>(`/admin/users/${encodeURIComponent(userId)}`, {
+  return platformFetch<AppUser>(`/admin/users/${encodeURIComponent(userId)}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),
   });
 }
 
 export function apiGetAdminListings() {
-  return adminFetch<SellerListing[]>('/admin/listings');
+  return platformFetch<SellerListing[]>('/admin/listings');
 }
 
 export function apiUpdateAdminListing(listingId: string, status: SellerListing['status']) {
-  return adminFetch<SellerListing>(`/admin/listings/${encodeURIComponent(listingId)}`, {
+  return platformFetch<SellerListing>(`/admin/listings/${encodeURIComponent(listingId)}`, {
     method: 'PATCH',
     body: JSON.stringify({ status }),
   });
 }
 
 export function apiGetAdminOrders() {
-  return adminFetch<AdminOrderRow[]>('/admin/orders');
+  return platformFetch<AdminOrderRow[]>('/admin/orders');
 }
 
 export function apiUpdateAdminOrder(
   orderId: string,
   patch: { status?: Order['status']; paymentStatus?: Order['paymentStatus'] }
 ) {
-  return adminFetch<AdminOrderRow>(`/admin/orders/${encodeURIComponent(orderId)}`, {
+  return platformFetch<AdminOrderRow>(`/admin/orders/${encodeURIComponent(orderId)}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),
   });
 }
 
 export function apiGetAdminPayments() {
-  return adminFetch<AdminPaymentRow[]>('/admin/payments');
+  return platformFetch<AdminPaymentRow[]>('/admin/payments');
 }
 
 export function apiGetAdminReports() {
-  return adminFetch<TrustReport[]>('/admin/reports');
+  return platformFetch<TrustReport[]>('/admin/reports');
 }
 
 export function apiUpdateAdminReport(reportId: string, status: TrustReport['status']) {
-  return adminFetch<TrustReport>(`/admin/reports/${encodeURIComponent(reportId)}`, {
+  return platformFetch<TrustReport>(`/admin/reports/${encodeURIComponent(reportId)}`, {
     method: 'PATCH',
     body: JSON.stringify({ status }),
   });
 }
 
 export function apiGetAdminSettings() {
-  return adminFetch<AdminSettings>('/admin/settings');
+  return platformFetch<AdminSettings>('/admin/settings');
 }

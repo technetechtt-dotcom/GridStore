@@ -30,12 +30,27 @@ services:
           type: web
           name: gridstore-admin
           envVarKey: RENDER_EXTERNAL_URL
+      - key: PUBLIC_WEB_URL
+        fromService:
+          type: web
+          name: gridstore-web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: PUBLIC_ADMIN_URL
+        fromService:
+          type: web
+          name: gridstore-admin
+          envVarKey: RENDER_EXTERNAL_URL
 
   # Vite React SPA (static CDN)
   - type: web
     name: gridstore-web
     runtime: static
-    buildCommand: npm ci && VITE_API_BASE_URL="${API_HOST}/api" npm run build
+    buildCommand: >-
+      npm ci &&
+      VITE_API_BASE_URL="${API_HOST}/api"
+      VITE_PUBLIC_WEB_URL="${WEB_HOST}"
+      VITE_PUBLIC_ADMIN_URL="${ADMIN_HOST}"
+      npm run build
     staticPublishPath: dist
     pullRequestPreviewsEnabled: true
     envVars:
@@ -43,6 +58,16 @@ services:
         fromService:
           type: web
           name: gridstore-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: WEB_HOST
+        fromService:
+          type: web
+          name: gridstore-web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: ADMIN_HOST
+        fromService:
+          type: web
+          name: gridstore-admin
           envVarKey: RENDER_EXTERNAL_URL
     routes:
       - type: rewrite
@@ -53,7 +78,13 @@ services:
   - type: web
     name: gridstore-admin
     runtime: static
-    buildCommand: npm ci && VITE_API_BASE_URL="${API_HOST}/api" VITE_ADMIN_BASE_PATH="" npm run build:admin
+    buildCommand: >-
+      npm ci &&
+      VITE_API_BASE_URL="${API_HOST}/api"
+      VITE_PUBLIC_WEB_URL="${WEB_HOST}"
+      VITE_PUBLIC_ADMIN_URL="${ADMIN_HOST}"
+      VITE_ADMIN_BASE_PATH=""
+      npm run build:admin
     staticPublishPath: dist-admin
     pullRequestPreviewsEnabled: true
     envVars:
@@ -61,6 +92,16 @@ services:
         fromService:
           type: web
           name: gridstore-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: WEB_HOST
+        fromService:
+          type: web
+          name: gridstore-web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: ADMIN_HOST
+        fromService:
+          type: web
+          name: gridstore-admin
           envVarKey: RENDER_EXTERNAL_URL
     routes:
       - type: rewrite

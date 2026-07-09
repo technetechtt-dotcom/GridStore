@@ -37,3 +37,6 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Build admin
+        run: npm run build:admin

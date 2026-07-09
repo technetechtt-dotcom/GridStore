@@ -12,7 +12,7 @@ import type {
   TrustReport,
   UserRole,
 } from '../types';
-import { getApiMode } from './mockApi';
+import { getApiMode } from './apiConnection';
 import { buildApiUrl, parseJsonResponse } from './apiUrl';
 
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? '10000');
@@ -40,6 +40,19 @@ export function setAuthToken(token: string | null) {
   } else {
     window.localStorage.removeItem(AUTH_TOKEN_KEY);
   }
+}
+
+export function hydrateAuthToken(user: Pick<AppUser, 'sessionToken'> | null | undefined) {
+  if (!user?.sessionToken || getAuthToken()) return;
+  setAuthToken(user.sessionToken);
+}
+
+export const AUTH_SESSION_EXPIRED_EVENT = 'gridstore-auth-session-expired';
+
+export function notifyAuthSessionExpired() {
+  if (typeof window === 'undefined') return;
+  setAuthToken(null);
+  window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
 }
 
 export function isPlatformApiAvailable() {
@@ -95,6 +108,9 @@ export async function platformFetch<T>(
         if (body.error) message = body.error;
       } catch {
         // ignore parse errors
+      }
+      if (response.status === 401 && options.auth !== false) {
+        notifyAuthSessionExpired();
       }
       throw new Error(message);
     }

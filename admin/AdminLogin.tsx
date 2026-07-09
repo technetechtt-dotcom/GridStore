@@ -6,6 +6,7 @@ import { Button } from '../src/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../src/components/ui/card';
 import { Input } from '../src/components/ui/input';
 import { useApp } from '../src/context/AppContext';
+import { getConnectionStatus } from '../src/services/apiConnection';
 
 export function AdminLogin() {
   const navigate = useNavigate();
@@ -13,7 +14,7 @@ export function AdminLogin() {
   const from = (location.state as { from?: string } | null)?.from;
   const { login } = useApp();
   const [email, setEmail] = React.useState('admin@gridstore.local');
-  const [password, setPassword] = React.useState('');
+  const [password, setPassword] = React.useState('demo1234');
   const [loading, setLoading] = React.useState(false);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -28,7 +29,12 @@ export function AdminLogin() {
       toast.success('Signed in to ops dashboard');
       navigate(from && from !== '/login' ? from : '/', { replace: true });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to sign in');
+      const message = error instanceof Error ? error.message : 'Unable to sign in';
+      if (getConnectionStatus() === 'disconnected') {
+        toast.error('API is unreachable. Start the backend (npm run dev:server) and retry.');
+      } else {
+        toast.error(message);
+      }
     } finally {
       setLoading(false);
     }
