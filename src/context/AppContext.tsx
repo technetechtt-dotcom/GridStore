@@ -390,12 +390,16 @@ export function AppProvider({
       // Keep local persisted state when sync fails.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- persist mirrors current React state snapshot
-  }, [skipPlatformSync, sellerListings, user, notifications, messageThreads]);
+  }, [skipPlatformSync]);
 
   useEffect(() => {
     if (skipPlatformSync) return;
 
+    let isFirstCallback = true;
     return subscribeApiMode((mode) => {
+      const skipInitial = isFirstCallback;
+      isFirstCallback = false;
+      if (skipInitial && mode === 'checking') return;
       if (mode === 'live' && getConnectionStatus() === 'connected' && getAuthToken()) {
         void refreshFromApi();
       }

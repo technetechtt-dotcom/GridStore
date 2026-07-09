@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Badge } from '../components/ui/badge';
@@ -89,7 +89,7 @@ export function Marketplace() {
   const { addToCart, toggleWishlist, isInWishlist, sellerListings, reportTrustIssue } = useApp();
   const { query, categoryParam, setQuery, setCategoryParam } = useQuerySearchParam();
   const [draftQuery, setDraftQuery] = useState(query);
-  const [items, setItems] = useState<Product[]>([]);
+  const [catalogItems, setCatalogItems] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState('all');
   const [sort, setSort] = useState('relevance');
@@ -101,15 +101,16 @@ export function Marketplace() {
     setPage(1);
     setLoading(true);
     getMarketplaceProducts(query, categoryParam)
-      .then((catalogueItems) => {
-        const liveListings = sellerListings.filter((item) => item.status === 'active');
-        const merged = [...liveListings, ...catalogueItems].filter(
-          (item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index
-        );
-        setItems(merged);
-      })
+      .then(setCatalogItems)
       .finally(() => setLoading(false));
-  }, [categoryParam, query, sellerListings]);
+  }, [categoryParam, query]);
+
+  const items = useMemo(() => {
+    const liveListings = sellerListings.filter((item) => item.status === 'active');
+    return [...liveListings, ...catalogItems].filter(
+      (item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index
+    );
+  }, [catalogItems, sellerListings]);
 
   const categories = useMemo(
     () => ['all', ...Array.from(new Set(items.map((item) => item.category)))],
@@ -323,6 +324,8 @@ export function ProductDetail() {
   const [offerMessage, setOfferMessage] = useState('');
   const [bidAmount, setBidAmount] = useState('');
   const [tradeBusy, setTradeBusy] = useState(false);
+  const sellerListingsRef = useRef(sellerListings);
+  sellerListingsRef.current = sellerListings;
 
   useEffect(() => {
     if (!id) return;
@@ -330,7 +333,7 @@ export function ProductDetail() {
 
     const load = async () => {
       let item: SellerListing | null =
-        sellerListings.find((listing) => listing.id === id) ?? null;
+        sellerListingsRef.current.find((listing) => listing.id === id) ?? null;
 
       if (isPlatformApiAvailable()) {
         try {
@@ -373,7 +376,7 @@ export function ProductDetail() {
     };
 
     void load().finally(() => setLoading(false));
-  }, [id, sellerListings, user, loadListingOffers]);
+  }, [id, user, loadListingOffers]);
 
   if (loading) {
     return (
@@ -635,28 +638,47 @@ export function ProductDetail() {
 
 export function Auctions() {
   const { sellerListings } = useApp();
-  const [auctions, setAuctions] = useState<SellerListing[]>([]);
+  const [apiAuctions, setApiAuctions] = useState<SellerListing[] | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
+
     const load = async () => {
       if (isPlatformApiAvailable()) {
         try {
-          setAuctions(await apiGetAuctions());
+          const rows = await apiGetAuctions();
+          if (!cancelled) {
+            setApiAuctions(rows);
+          }
           return;
         } catch {
           // Fall back to local listings.
         }
       }
-      setAuctions(
-        sellerListings.filter(
-          (listing) => listing.saleMode === 'auction' && listing.status === 'active'
-        )
-      );
+      if (!cancelled) {
+        setApiAuctions(null);
+      }
     };
-    void load().finally(() => setLoading(false));
-  }, [sellerListings]);
+
+    setLoading(true);
+    void load().finally(() => {
+      if (!cancelled) {
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const auctions = useMemo(() => {
+    if (apiAuctions) return apiAuctions;
+    return sellerListings.filter(
+      (listing) => listing.saleMode === 'auction' && listing.status === 'active'
+    );
+  }, [apiAuctions, sellerListings]);
 
   const liveAuctions = auctions.filter(isAuctionLive);
   const endedAuctions = auctions.filter((listing) => !isAuctionLive(listing));

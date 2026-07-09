@@ -3,6 +3,8 @@ import {
   checkApiConnection,
   getConnectionSummary,
   getConnectionStatus,
+  notifyApiRequestSuccess,
+  subscribeApiMode,
   subscribeConnectionStatus,
 } from './apiConnection';
 
@@ -65,6 +67,33 @@ describe('apiConnection', () => {
 
     expect(connected).toBe(false);
     expect(getConnectionStatus()).toBe('disconnected');
+  });
+
+  it('does not re-notify api mode listeners when mode is unchanged', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'ok',
+          service: 'gridstore-api',
+          timestamp: new Date().toISOString(),
+        }),
+      })
+    );
+
+    const listener = vi.fn();
+    const unsubscribe = subscribeApiMode(listener);
+
+    await checkApiConnection();
+    listener.mockClear();
+
+    notifyApiRequestSuccess();
+    notifyApiRequestSuccess();
+
+    expect(listener).not.toHaveBeenCalled();
+
+    unsubscribe();
   });
 
   it('notifies connection status subscribers', async () => {

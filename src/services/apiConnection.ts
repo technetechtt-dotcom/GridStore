@@ -15,6 +15,7 @@ export interface PlatformHealth {
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? '10000');
 const MONITOR_INTERVAL_MS = Number(import.meta.env.VITE_API_MONITOR_MS ?? '20000');
 const MAX_MONITOR_INTERVAL_MS = Number(import.meta.env.VITE_API_MONITOR_MAX_MS ?? '120000');
+const TRANSIENT_DISCONNECT_THRESHOLD = 3;
 
 let apiMode: ApiMode = 'checking';
 let connectionStatus: ConnectionStatus = 'checking';
@@ -30,11 +31,13 @@ const apiModeListeners = new Set<(mode: ApiMode) => void>();
 const connectionListeners = new Set<(status: ConnectionStatus) => void>();
 
 function setApiMode(mode: ApiMode) {
+  if (apiMode === mode) return;
   apiMode = mode;
   apiModeListeners.forEach((listener) => listener(mode));
 }
 
 function setConnectionStatus(status: ConnectionStatus) {
+  if (connectionStatus === status) return;
   connectionStatus = status;
   connectionListeners.forEach((listener) => listener(status));
 }
@@ -130,7 +133,9 @@ export async function checkApiConnection(options: { silent?: boolean } = {}) {
       MAX_MONITOR_INTERVAL_MS
     );
     if (isTransientApiError(error)) {
-      setConnectionStatus('disconnected');
+      if (!silent || consecutiveFailures >= TRANSIENT_DISCONNECT_THRESHOLD) {
+        setConnectionStatus('disconnected');
+      }
       return false;
     }
     if (!silent) {
