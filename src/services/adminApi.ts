@@ -1,18 +1,10 @@
 import type { AppUser, Order, SellerListing, TrustReport, UserRole } from '../types';
+import { buildApiUrl, parseJsonResponse } from './apiUrl';
 import { getAuthToken } from './platformApi';
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
-
-function getBaseOrigin() {
-  if (typeof globalThis.location !== 'undefined' && globalThis.location.origin) {
-    return globalThis.location.origin;
-  }
-  return 'http://localhost';
-}
 
 async function adminFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
-  const response = await fetch(`${getBaseOrigin()}${API_BASE_URL}${path}`, {
+  const response = await fetch(buildApiUrl(path), {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -24,7 +16,7 @@ async function adminFetch<T>(path: string, options: RequestInit = {}): Promise<T
   if (!response.ok) {
     let message = `HTTP ${response.status}`;
     try {
-      const body = (await response.json()) as { error?: string };
+      const body = await parseJsonResponse<{ error?: string }>(response.clone());
       if (body.error) message = body.error;
     } catch {
       // ignore
@@ -33,7 +25,7 @@ async function adminFetch<T>(path: string, options: RequestInit = {}): Promise<T
   }
 
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  return parseJsonResponse<T>(response);
 }
 
 export interface AdminStats {

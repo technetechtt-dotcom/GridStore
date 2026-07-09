@@ -13,30 +13,12 @@ import type {
   UserRole,
 } from '../types';
 import { getApiMode } from './mockApi';
+import { buildApiUrl, parseJsonResponse } from './apiUrl';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? '10000');
 export const AUTH_TOKEN_KEY = 'gridstore-auth-token';
 
 type QueryParams = Record<string, string | number | boolean | undefined>;
-
-function getBaseOrigin() {
-  if (typeof globalThis.location !== 'undefined' && globalThis.location.origin) {
-    return globalThis.location.origin;
-  }
-  return 'http://localhost';
-}
-
-function buildUrl(path: string, query?: QueryParams) {
-  const url = new URL(`${API_BASE_URL}${path}`, getBaseOrigin());
-  if (query) {
-    Object.entries(query).forEach(([key, value]) => {
-      if (value === undefined || value === '') return;
-      url.searchParams.set(key, String(value));
-    });
-  }
-  return `${url.pathname}${url.search}`;
-}
 
 function extractData<T>(payload: unknown): T {
   if (Array.isArray(payload)) return payload as T;
@@ -96,7 +78,7 @@ export async function platformFetch<T>(
   const token = getAuthToken();
 
   try {
-    const response = await fetch(buildUrl(path, options.query), {
+    const response = await fetch(buildApiUrl(path, options.query), {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -109,7 +91,7 @@ export async function platformFetch<T>(
     if (!response.ok) {
       let message = `HTTP ${response.status}`;
       try {
-        const body = (await response.json()) as { error?: string };
+        const body = await parseJsonResponse<{ error?: string }>(response.clone());
         if (body.error) message = body.error;
       } catch {
         // ignore parse errors
@@ -121,7 +103,7 @@ export async function platformFetch<T>(
       return undefined as T;
     }
 
-    const payload = (await response.json()) as unknown;
+    const payload = await parseJsonResponse<unknown>(response);
     return extractData<T>(payload);
   } finally {
     globalThis.clearTimeout(timeout);

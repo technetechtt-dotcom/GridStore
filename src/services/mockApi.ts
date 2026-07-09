@@ -1,7 +1,7 @@
 import { jobs, products, rentals, services, stores } from '../data/catalog';
 import type { Job, Product, Rental, Service, StoreProfile } from '../types';
+import { buildApiUrl, parseJsonResponse } from './apiUrl';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? '10000');
 
 interface ApiEndpoints {
@@ -84,24 +84,6 @@ function queryMatch(value: string, query: string) {
   return value.toLowerCase().includes(query.trim().toLowerCase());
 }
 
-function getBaseOrigin() {
-  if (typeof globalThis.location !== 'undefined' && globalThis.location.origin) {
-    return globalThis.location.origin;
-  }
-  return 'http://localhost';
-}
-
-function buildUrl(path: string, query?: QueryParams) {
-  const url = new URL(`${API_BASE_URL}${path}`, getBaseOrigin());
-  if (query) {
-    Object.entries(query).forEach(([key, value]) => {
-      if (value === undefined || value === '') return;
-      url.searchParams.set(key, String(value));
-    });
-  }
-  return `${url.pathname}${url.search}`;
-}
-
 function extractData<T>(payload: unknown): T {
   if (Array.isArray(payload)) return payload as T;
   if (payload && typeof payload === 'object' && 'data' in payload) {
@@ -115,7 +97,7 @@ async function fetchJson<T>(path: string, query?: QueryParams, init?: RequestIni
   const timeout = globalThis.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
   try {
-    const response = await fetch(buildUrl(path, query), {
+    const response = await fetch(buildApiUrl(path, query), {
       ...init,
       headers: {
         'Content-Type': 'application/json',
@@ -128,7 +110,7 @@ async function fetchJson<T>(path: string, query?: QueryParams, init?: RequestIni
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const payload = (await response.json()) as unknown;
+    const payload = await parseJsonResponse<unknown>(response);
     return extractData<T>(payload);
   } finally {
     globalThis.clearTimeout(timeout);
