@@ -178,21 +178,33 @@ function normalizeJob(row: Record<string, unknown>): Job {
 }
 
 function normalizeStore(row: Record<string, unknown>): StoreProfile {
-  return {
-    id: String(row.id),
-    name: snakeValue(row.name),
-    category: snakeValue(row.category),
-    rating: numberValue(row.rating),
-    followers: numberValue(row.followers),
-    location: snakeValue(row.location),
-    description: snakeValue(row.description),
+  const id = String(row.id);
+  const catalogMatch = stores.find((store) => store.id === id);
+  const base: StoreProfile = {
+    id,
+    name: snakeValue(row.name) || catalogMatch?.name || '',
+    category: snakeValue(row.category) || catalogMatch?.category || '',
+    rating: numberValue(row.rating) || catalogMatch?.rating || 0,
+    followers: numberValue(row.followers) || catalogMatch?.followers || 0,
+    location: snakeValue(row.location) || catalogMatch?.location || '',
+    description: snakeValue(row.description) || catalogMatch?.description || '',
     supportEmail:
       row.supportEmail != null || row.support_email != null
         ? snakeValue(row.supportEmail ?? row.support_email)
-        : undefined,
-    status: (row.status as StoreProfile['status']) ?? 'active',
-    verified: Boolean(row.verified),
-    image: row.image ? snakeValue(row.image) : undefined,
+        : catalogMatch?.supportEmail,
+    status: (row.status as StoreProfile['status']) ?? catalogMatch?.status ?? 'active',
+    verified: row.verified != null ? Boolean(row.verified) : catalogMatch?.verified,
+    image: row.image ? snakeValue(row.image) : catalogMatch?.image,
+  };
+
+  if (!catalogMatch) return base;
+
+  return {
+    ...catalogMatch,
+    ...base,
+    image: base.image || catalogMatch.image,
+    supportEmail: base.supportEmail || catalogMatch.supportEmail,
+    verified: base.verified ?? catalogMatch.verified,
   };
 }
 

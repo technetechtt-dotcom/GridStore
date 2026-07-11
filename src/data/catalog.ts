@@ -77,11 +77,78 @@ export const products: Product[] = [
     price: 38999,
     rating: 4.8,
     reviews: 221,
-    seller: 'PowerSmart',
+    seller: 'PowerSmart Energy',
     location: 'Port Elizabeth',
     image:
       'https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&q=80&w=800',
     description: 'Load-shedding ready power bundle with installer support.',
+  },
+  {
+    id: 'prod-camera-lens',
+    title: 'Sony FE 24-70mm f/2.8 GM II',
+    category: 'Cameras & Lenses',
+    price: 38999,
+    rating: 4.9,
+    reviews: 67,
+    seller: 'CameraWorld ZA',
+    location: 'Cape Town',
+    badge: 'Pro Choice',
+    image:
+      'https://images.unsplash.com/photo-1606983340126-99ab4feaa64a?auto=format&fit=crop&q=80&w=800',
+    description: 'Flagship zoom lens for weddings, events, and studio work.',
+  },
+  {
+    id: 'prod-tripod',
+    title: 'Manfrotto Aluminium Tripod Kit',
+    category: 'Accessories',
+    price: 3499,
+    rating: 4.6,
+    reviews: 140,
+    seller: 'CameraWorld ZA',
+    location: 'Cape Town',
+    image:
+      'https://images.unsplash.com/photo-1478720568477-152d9b164e26?auto=format&fit=crop&q=80&w=800',
+    description: 'Stable travel tripod with fluid head for photo and video.',
+  },
+  {
+    id: 'prod-drill-kit',
+    title: 'Bosch Professional Drill Kit',
+    category: 'Tools',
+    price: 4299,
+    rating: 4.8,
+    reviews: 188,
+    seller: 'BuildRight Pro',
+    location: 'Johannesburg',
+    badge: 'Trade Favourite',
+    image:
+      'https://images.unsplash.com/photo-1504148455328-c376907d081c?auto=format&fit=crop&q=80&w=800',
+    description: 'Cordless drill with batteries, charger, and carry case.',
+  },
+  {
+    id: 'prod-paint-set',
+    title: 'Premium Interior Paint Bundle',
+    category: 'Building Supplies',
+    price: 1899,
+    rating: 4.5,
+    reviews: 92,
+    seller: 'BuildRight Pro',
+    location: 'Johannesburg',
+    image:
+      'https://images.unsplash.com/photo-1562259949-e8e7689d7828?auto=format&fit=crop&q=80&w=800',
+    description: 'Low-VOC paint set covering 40m² with rollers and trays.',
+  },
+  {
+    id: 'prod-inverter-3kw',
+    title: '3kW Hybrid Inverter',
+    category: 'Solar',
+    price: 15999,
+    rating: 4.7,
+    reviews: 134,
+    seller: 'PowerSmart Energy',
+    location: 'Port Elizabeth',
+    image:
+      'https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?auto=format&fit=crop&q=80&w=800',
+    description: 'Hybrid inverter for homes with generator and battery support.',
   },
   {
     id: 'prod-fifine-mic',
@@ -253,6 +320,85 @@ export const stores: StoreProfile[] = [
     followers: 4812,
     location: 'Cape Town',
     description: 'Premium cameras, lenses and creator gear with local support.',
+    supportEmail: 'hello@cameraworld.za',
+    verified: true,
+    image:
+      'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&q=80&w=800',
+    bannerImage:
+      'https://images.unsplash.com/photo-1452780212940-6f5ce4ee17bb?auto=format&fit=crop&q=80&w=1400',
+    about:
+      'CameraWorld ZA has supplied South African creators for over a decade. We stock new and certified pre-owned bodies, glass, lighting, and studio kits, with in-store demos in Cape Town and nationwide courier options.',
+    policy: {
+      returns:
+        'Unused items can be returned within 14 days in original packaging. Opened software and personalised kits are final sale.',
+      shipping:
+        'Same-day dispatch for in-stock Cape Town orders placed before 12:00. Nationwide courier 1–3 business days.',
+      payment: 'Cards, EFT, and GridStore escrow payments accepted. Business invoices on request.',
+      warranty: 'Manufacturer warranty plus 90-day local swap support on selected bodies.',
+    },
+    categories: ['Cameras & Lenses', 'Electronics', 'Accessories', 'Lighting'],
+    handlingTime: '1-2 days',
+    memberSince: '2014',
+    responseTime: 'Usually within 2 hours',
+    reviewCount: 1284,
+    reviews: [
+      {
+        id: 'rev-cw-1',
+        author: 'Thandi M.',
+        rating: 5,
+        title: 'Fast dispatch and mint condition',
+        comment: 'Lens arrived next day, sealed and exactly as listed. Support answered all my mount questions.',
+        createdAt: '3 days ago',
+        listingTitle: 'Sony FE 24-70mm f/2.8 GM II',
+      },
+      {
+        id: 'rev-cw-2',
+        author: 'Johan K.',
+        rating: 5,
+        title: 'Trusted seller',
+        comment: 'Bought my a7 IV here. Packaging was excellent and they helped with a trade-in quote.',
+        createdAt: '1 week ago',
+        listingTitle: 'Sony Alpha a7 IV Mirrorless Camera',
+      },
+      {
+        id: 'rev-cw-3',
+        author: 'Lerato P.',
+        rating: 4,
+        title: 'Great gear, slight delay',
+        comment: 'Tripod was perfect. Delivery took an extra day during peak season but communication was clear.',
+        createdAt: '2 weeks ago',
+        listingTitle: 'Manfrotto Aluminium Tripod Kit',
+      },
+    ],
+    recentlySold: [
+      {
+        id: 'sold-cw-1',
+        title: 'Godox V1 Flash',
+        price: 4999,
+        image:
+          'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&q=80&w=400',
+        soldAt: 'Yesterday',
+        category: 'Lighting',
+      },
+      {
+        id: 'sold-cw-2',
+        title: 'Peak Design Everyday Backpack',
+        price: 3899,
+        image:
+          'https://images.unsplash.com/photo-1478720568477-152d9b164e26?auto=format&fit=crop&q=80&w=400',
+        soldAt: '2 days ago',
+        category: 'Accessories',
+      },
+      {
+        id: 'sold-cw-3',
+        title: 'Canon RF 50mm f/1.8',
+        price: 4299,
+        image:
+          'https://images.unsplash.com/photo-1606983340126-99ab4feaa64a?auto=format&fit=crop&q=80&w=400',
+        soldAt: '4 days ago',
+        category: 'Cameras & Lenses',
+      },
+    ],
   },
   {
     id: 'store-buildright',
@@ -262,6 +408,65 @@ export const stores: StoreProfile[] = [
     followers: 2294,
     location: 'Johannesburg',
     description: 'Trusted construction and renovation service marketplace store.',
+    supportEmail: 'orders@buildright.pro',
+    verified: true,
+    image:
+      'https://images.unsplash.com/photo-1504148455328-c376907d081c?auto=format&fit=crop&q=80&w=800',
+    bannerImage:
+      'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&q=80&w=1400',
+    about:
+      'BuildRight Pro supplies trade tools, finishing materials, and renovation kits for contractors and DIY homeowners across Gauteng. We partner with certified installers for larger projects.',
+    policy: {
+      returns: 'Defective tools replaced within 7 days. Opened consumables are non-returnable.',
+      shipping: 'Gauteng same-day or next-day for most stock. National freight for bulky items.',
+      payment: 'EFT, card, and approved trade accounts.',
+      warranty: 'Tool warranties handled via authorised service centres.',
+    },
+    categories: ['Tools', 'Building Supplies', 'Home Services', 'Hardware'],
+    handlingTime: 'Same day',
+    memberSince: '2017',
+    responseTime: 'Usually within 4 hours',
+    reviewCount: 642,
+    reviews: [
+      {
+        id: 'rev-br-1',
+        author: 'Sipho D.',
+        rating: 5,
+        title: 'Trade quality kit',
+        comment: 'Drill kit was complete and ready for site. Will order paint bundles again.',
+        createdAt: '5 days ago',
+        listingTitle: 'Bosch Professional Drill Kit',
+      },
+      {
+        id: 'rev-br-2',
+        author: 'Nadia F.',
+        rating: 4,
+        title: 'Solid renovation partner',
+        comment: 'Paint arrived on time. Colour match advice on WhatsApp was helpful.',
+        createdAt: '1 week ago',
+        listingTitle: 'Premium Interior Paint Bundle',
+      },
+    ],
+    recentlySold: [
+      {
+        id: 'sold-br-1',
+        title: 'Laser Distance Measurer',
+        price: 2199,
+        image:
+          'https://images.unsplash.com/photo-1504148455328-c376907d081c?auto=format&fit=crop&q=80&w=400',
+        soldAt: 'Today',
+        category: 'Tools',
+      },
+      {
+        id: 'sold-br-2',
+        title: 'Safety Boot Pair',
+        price: 899,
+        image:
+          'https://images.unsplash.com/photo-1562259949-e8e7689d7828?auto=format&fit=crop&q=80&w=400',
+        soldAt: '3 days ago',
+        category: 'Hardware',
+      },
+    ],
   },
   {
     id: 'store-powersmart',
@@ -271,5 +476,162 @@ export const stores: StoreProfile[] = [
     followers: 3190,
     location: 'Port Elizabeth',
     description: 'Load-shedding and backup power solutions for homes and SMEs.',
+    supportEmail: 'support@powersmart.energy',
+    verified: true,
+    image:
+      'https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&q=80&w=800',
+    bannerImage:
+      'https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?auto=format&fit=crop&q=80&w=1400',
+    about:
+      'PowerSmart Energy designs and supplies backup power systems for homes and small businesses. Every kit includes sizing guidance and optional installer booking across the Eastern Cape and nationwide.',
+    policy: {
+      returns: 'Unopened kits returnable within 10 days. Installed systems follow installer warranty terms.',
+      shipping: 'Specialist courier for heavy batteries. Typical handling 1–3 business days.',
+      payment: 'Escrow recommended for large kits. Card and EFT supported.',
+      warranty: 'Inverter and battery warranties from 2–10 years depending on brand.',
+    },
+    categories: ['Solar', 'Home & Garden', 'Batteries', 'Inverters'],
+    handlingTime: '3-5 days',
+    memberSince: '2019',
+    responseTime: 'Usually within 1 business day',
+    reviewCount: 891,
+    reviews: [
+      {
+        id: 'rev-ps-1',
+        author: 'Michelle R.',
+        rating: 5,
+        title: 'Kept us online through stage 4',
+        comment: '5kW kit was sized correctly and the installer referral was reliable.',
+        createdAt: '6 days ago',
+        listingTitle: '5kW Solar Inverter + Battery Kit',
+      },
+      {
+        id: 'rev-ps-2',
+        author: 'Andile N.',
+        rating: 4,
+        title: 'Good value inverter',
+        comment: 'Hybrid unit works well with our existing panels. Docs were clear.',
+        createdAt: '2 weeks ago',
+        listingTitle: '3kW Hybrid Inverter',
+      },
+    ],
+    recentlySold: [
+      {
+        id: 'sold-ps-1',
+        title: 'Lithium Battery 5kWh',
+        price: 24999,
+        image:
+          'https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&q=80&w=400',
+        soldAt: 'Yesterday',
+        category: 'Batteries',
+      },
+      {
+        id: 'sold-ps-2',
+        title: 'Surge Protection Kit',
+        price: 1299,
+        image:
+          'https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?auto=format&fit=crop&q=80&w=400',
+        soldAt: '5 days ago',
+        category: 'Home & Garden',
+      },
+    ],
+  },
+  {
+    id: 'store-capclothier',
+    name: 'Cape Clothier',
+    category: 'Fashion',
+    rating: 4.6,
+    followers: 1560,
+    location: 'Cape Town',
+    description: 'Tailored apparel and seasonal essentials for work and weekend.',
+    supportEmail: 'studio@capeclothier.co.za',
+    verified: true,
+    image:
+      'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&q=80&w=800',
+    bannerImage:
+      'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=1400',
+    about:
+      'Cape Clothier is an independent menswear and smart-casual label based in the Mother City. We focus on natural fabrics, local alterations, and limited seasonal drops.',
+    policy: {
+      returns: 'Unworn items with tags within 14 days. Altered garments are final sale.',
+      shipping: 'Cape Town 1–2 days. National tracked courier 2–4 days.',
+      payment: 'Card and EFT. Gift vouchers available in-store.',
+    },
+    categories: ['Fashion', 'Menswear', 'Accessories'],
+    handlingTime: '1-2 days',
+    memberSince: '2021',
+    responseTime: 'Usually within 6 hours',
+    reviewCount: 210,
+    reviews: [
+      {
+        id: 'rev-cc-1',
+        author: 'Craig W.',
+        rating: 5,
+        title: 'Perfect summer blazer',
+        comment: 'Fit is true to size and fabric breathes well in Cape heat.',
+        createdAt: '4 days ago',
+        listingTitle: 'Tailored Linen Blazer',
+      },
+    ],
+    recentlySold: [
+      {
+        id: 'sold-cc-1',
+        title: 'Oxford Shirt',
+        price: 799,
+        image:
+          'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&q=80&w=400',
+        soldAt: '2 days ago',
+        category: 'Fashion',
+      },
+    ],
+  },
+  {
+    id: 'store-strideza',
+    name: 'StrideZA',
+    category: 'Fashion',
+    rating: 4.5,
+    followers: 980,
+    location: 'Johannesburg',
+    description: 'Performance footwear and everyday athletic essentials.',
+    supportEmail: 'hello@strideza.co.za',
+    verified: false,
+    image:
+      'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=800',
+    bannerImage:
+      'https://images.unsplash.com/photo-1460355976671-bb102528f38b?auto=format&fit=crop&q=80&w=1400',
+    about:
+      'StrideZA curates running and lifestyle sneakers with authentic stock and honest sizing guides for South African athletes.',
+    policy: {
+      returns: 'Unworn shoes in original box within 7 days.',
+      shipping: 'Gauteng next-day for most sizes. National 2–4 days.',
+      payment: 'Card, EFT, and escrow for high-value pairs.',
+    },
+    categories: ['Fashion', 'Footwear', 'Sports'],
+    handlingTime: '1-2 days',
+    memberSince: '2022',
+    responseTime: 'Usually within 8 hours',
+    reviewCount: 156,
+    reviews: [
+      {
+        id: 'rev-sz-1',
+        author: 'Kayla S.',
+        rating: 4,
+        title: 'Comfortable daily trainers',
+        comment: 'True to size. Dispatch was quick from Joburg warehouse.',
+        createdAt: '1 week ago',
+        listingTitle: 'Performance Running Sneakers',
+      },
+    ],
+    recentlySold: [
+      {
+        id: 'sold-sz-1',
+        title: 'Training Socks 3-Pack',
+        price: 249,
+        image:
+          'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=400',
+        soldAt: 'Today',
+        category: 'Sports',
+      },
+    ],
   },
 ];

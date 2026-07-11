@@ -13,11 +13,10 @@ import {
   getProductById,
   getRentals,
   getServices,
-  getStores,
 } from '../services/mockApi';
 import { apiGetListing, isPlatformApiAvailable } from '../services/platformApi';
 import { apiGetAuctionDetail, apiGetAuctions } from '../services/tradeApi';
-import type { AuctionBid, HaggleOffer, Job, Product, Rental, SellerListing, Service, StoreProfile } from '../types';
+import type { AuctionBid, HaggleOffer, Job, Product, Rental, SellerListing, Service } from '../types';
 
 function Currency({ value }: { value: number }) {
   return <>{`R ${value.toLocaleString('en-ZA')}`}</>;
@@ -640,6 +639,8 @@ export function Auctions() {
   const { sellerListings } = useApp();
   const [apiAuctions, setApiAuctions] = useState<SellerListing[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sort, setSort] = useState<'ending' | 'price-high' | 'bids'>('ending');
+  const [category, setCategory] = useState('all');
 
   useEffect(() => {
     let cancelled = false;
@@ -674,22 +675,47 @@ export function Auctions() {
   }, []);
 
   const auctions = useMemo(() => {
-    if (apiAuctions) return apiAuctions;
-    return sellerListings.filter(
-      (listing) => listing.saleMode === 'auction' && listing.status === 'active'
-    );
+    if (apiAuctions?.length) return apiAuctions;
+    return sellerListings.filter((listing) => listing.saleMode === 'auction');
   }, [apiAuctions, sellerListings]);
 
-  const liveAuctions = auctions.filter(isAuctionLive);
+  const categories = useMemo(
+    () => ['all', ...Array.from(new Set(auctions.map((item) => item.category)))],
+    [auctions]
+  );
+
+  const liveAuctions = useMemo(() => {
+    let rows = auctions.filter(isAuctionLive);
+    if (category !== 'all') {
+      rows = rows.filter((item) => item.category === category);
+    }
+    rows = [...rows].sort((a, b) => {
+      if (sort === 'price-high') {
+        return (b.currentBid ?? b.startingBid ?? b.price) - (a.currentBid ?? a.startingBid ?? a.price);
+      }
+      if (sort === 'bids') return (b.bidCount ?? 0) - (a.bidCount ?? 0);
+      const aEnd = a.auctionEndsAt ? new Date(a.auctionEndsAt).getTime() : Number.MAX_SAFE_INTEGER;
+      const bEnd = b.auctionEndsAt ? new Date(b.auctionEndsAt).getTime() : Number.MAX_SAFE_INTEGER;
+      return aEnd - bEnd;
+    });
+    return rows;
+  }, [auctions, category, sort]);
+
   const endedAuctions = auctions.filter((listing) => !isAuctionLive(listing));
+  const featured = liveAuctions[0];
 
   return (
-    <div className="container mx-auto px-4 py-10 space-y-8">
-      <div>
-        <h1 className="text-3xl font-display font-bold">Live Auctions</h1>
-        <p className="text-muted-foreground">
-          Bid on verified listings with real-time price updates — Yaga-style haggle listings stay in the marketplace.
-        </p>
+    <div className="container mx-auto space-y-8 px-4 py-10">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="font-display text-3xl font-bold">Live Auctions</h1>
+          <p className="text-muted-foreground">
+            Bid on verified listings with live price updates. Fixed-price and haggle stays in the marketplace.
+          </p>
+        </div>
+        <Badge variant="secondary" className="w-fit">
+          {liveAuctions.length} live now
+        </Badge>
       </div>
 
       {loading ? (
@@ -701,16 +727,104 @@ export function Auctions() {
         />
       ) : (
         <>
-          {liveAuctions.length ? (
-            <section className="space-y-4">
-              <h2 className="text-xl font-semibold">Live now ({liveAuctions.length})</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {featured ? (
+            <section className="overflow-hidden rounded-2xl border bg-card">
+              <div className="grid gap-0 md:grid-cols-2">
+                <Link to={`/product/${featured.id}`} className="block min-h-64 bg-muted">
+                  <img
+                    src={featured.image}
+                    alt={featured.title}
+                    className="h-full w-full object-cover"
+                  />
+                </Link>
+                <div className="flex flex-col justify-center space-y-4 p-6 md:p-8">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge className="bg-red-600 text-white hover:bg-red-600">Live auction</Badge>
+                    {featured.verified ? <Badge variant="secondary">Verified</Badge> : null}
+                    <Badge variant="outline">{featured.category}</Badge>
+                  </div>
+                  <div>
+                    <Link
+                      to={`/product/${featured.id}`}
+                      className="font-display text-2xl font-bold hover:text-primary md:text-3xl"
+                    >
+                      {featured.title}
+                    </Link>
+                    <p className="mt-2 text-sm text-muted-foreground">{featured.seller} · {featured.location}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Current bid</p>
+                    <p className="font-display text-3xl font-bold">
+                      <Currency
+                        value={
+                          featured.currentBid && featured.currentBid > 0
+                            ? featured.currentBid
+                            : minimumBid(featured)
+                        }
+                      />
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {featured.bidCount ?? 0} bids
+                      {featured.auctionEndsAt
+                        ? ` · ends ${new Date(featured.auctionEndsAt).toLocaleString('en-ZA')}`
+                        : ''}
+                    </p>
+                  </div>
+                  <Button asChild size="lg" className="w-full sm:w-auto">
+                    <Link to={`/product/${featured.id}`}>Place bid</Link>
+                  </Button>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          <div className="grid gap-3 rounded-xl border bg-card p-3 sm:grid-cols-2">
+            <label className="text-sm">
+              <span className="mb-1 block text-muted-foreground">Category</span>
+              <select
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3"
+              >
+                {categories.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {entry === 'all' ? 'All categories' : entry}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-muted-foreground">Sort live auctions</span>
+              <select
+                value={sort}
+                onChange={(event) => setSort(event.target.value as typeof sort)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3"
+              >
+                <option value="ending">Ending soon</option>
+                <option value="price-high">Highest bid</option>
+                <option value="bids">Most bids</option>
+              </select>
+            </label>
+          </div>
+
+          <section className="space-y-4">
+            <h2 className="text-xl font-semibold">Live now ({liveAuctions.length})</h2>
+            {liveAuctions.length === 0 ? (
+              <EmptyState
+                title="No live auctions in this category"
+                description="Try another category or check back soon for new lots."
+              />
+            ) : (
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
                 {liveAuctions.map((item) => (
                   <Card key={item.id} className="overflow-hidden">
-                    <Link to={`/product/${item.id}`} className="block h-44 bg-muted">
+                    <Link to={`/product/${item.id}`} className="relative block h-44 bg-muted">
                       <img src={item.image} alt={item.title} className="h-full w-full object-cover" />
+                      <Badge className="absolute left-3 top-3 bg-red-600 text-white hover:bg-red-600">
+                        Live
+                      </Badge>
                     </Link>
-                    <CardContent className="p-4 space-y-2">
+                    <CardContent className="space-y-2 p-4">
                       <Link to={`/product/${item.id}`} className="font-semibold hover:text-primary">
                         {item.title}
                       </Link>
@@ -727,7 +841,7 @@ export function Auctions() {
                       <p className="text-xs text-muted-foreground">
                         {item.bidCount ?? 0} bids
                         {item.auctionEndsAt
-                          ? ` • ends ${new Date(item.auctionEndsAt).toLocaleString('en-ZA')}`
+                          ? ` · ends ${new Date(item.auctionEndsAt).toLocaleString('en-ZA')}`
                           : ''}
                       </p>
                       <Button asChild className="w-full">
@@ -737,16 +851,17 @@ export function Auctions() {
                   </Card>
                 ))}
               </div>
-            </section>
-          ) : null}
+            )}
+          </section>
 
           {endedAuctions.length ? (
             <section className="space-y-4">
               <h2 className="text-xl font-semibold">Recently ended</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
                 {endedAuctions.map((item) => (
-                  <Card key={item.id} className="overflow-hidden opacity-80">
-                    <CardContent className="p-4 space-y-2">
+                  <Card key={item.id} className="overflow-hidden opacity-90">
+                    <CardContent className="space-y-2 p-4">
+                      <Badge variant="outline">Ended</Badge>
                       <Link to={`/product/${item.id}`} className="font-semibold hover:text-primary">
                         {item.title}
                       </Link>
@@ -1586,100 +1701,7 @@ export function BuyerDashboard() {
   );
 }
 
-export function Storefront() {
-  const { reportTrustIssue } = useApp();
-  const { query, setQuery } = useQuerySearchParam();
-  const [items, setItems] = useState<StoreProfile[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    getStores(query)
-      .then(setItems)
-      .finally(() => setLoading(false));
-  }, [query]);
-
-  return (
-    <div className="container mx-auto px-4 py-10 space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-display font-bold">Business Storefronts</h1>
-          <p className="text-muted-foreground">
-            Discover and compare verified business profiles.
-          </p>
-        </div>
-        <Button asChild>
-          <Link to="/store/create">Create storefront</Link>
-        </Button>
-      </div>
-      <form
-        className="max-w-xl"
-        onSubmit={(event) => {
-          event.preventDefault();
-        }}
-      >
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search stores, category, location"
-        />
-      </form>
-      {loading ? (
-        <p className="text-muted-foreground">Loading stores...</p>
-      ) : items.length === 0 ? (
-        <EmptyState title="No stores found" description="Try another search term." />
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {items.map((item) => (
-            <Card key={item.id} className="overflow-hidden">
-              {item.image ? (
-                <Link to={`/store/${item.id}`} className="block h-40 bg-muted">
-                  <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
-                </Link>
-              ) : null}
-              <CardHeader>
-                <CardTitle>
-                  <Link to={`/store/${item.id}`} className="hover:text-primary">
-                    {item.name}
-                  </Link>
-                </CardTitle>
-                <CardDescription>{item.location}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">{item.category}</Badge>
-                  {item.verified ? <Badge variant="secondary">Verified</Badge> : null}
-                </div>
-                <p className="text-sm text-muted-foreground">{item.description}</p>
-                <div className="flex items-center justify-between text-sm">
-                  <span>Rating: {item.rating}</span>
-                  <span>{item.followers.toLocaleString('en-ZA')} followers</span>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    className="flex-1"
-                    onClick={() => toast.success(`${item.name} followed`)}
-                  >
-                    Follow
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      reportTrustIssue('user', item.id, 'Storefront verification review requested');
-                      toast.success('Store sent to verification review');
-                    }}
-                  >
-                    Verify
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+export { StoresDirectory as Storefront } from './StorePages';
 
 export function Messages() {
   const { messageThreads, sendMessage } = useApp();

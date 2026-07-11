@@ -72,7 +72,7 @@ export class PostgresStoresStore implements StoresStore {
         ) VALUES (
           ${store.id}, ${seller.id}, ${store.name}, ${store.category},
           ${store.rating}, ${store.followers}, ${store.location}, ${store.description},
-          ${seller.email}, 'active', true, ${DEFAULT_STORE_IMAGE}, ${nowLabel()}
+          ${seller.email}, 'active', true, ${store.image ?? DEFAULT_STORE_IMAGE}, ${nowLabel()}
         )
       `;
     }

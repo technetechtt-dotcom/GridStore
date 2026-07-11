@@ -11,9 +11,8 @@ import {
   getJobById,
   getRentalById,
   getServiceById,
-  getStoreById,
 } from '../services/mockApi';
-import type { Job, Rental, Service, StoreProfile } from '../types';
+import type { Job, Rental, Service } from '../types';
 
 function PageShell({
   title,
@@ -235,59 +234,6 @@ export function StoreCreate() {
           </form>
         </CardContent>
       </Card>
-    </PageShell>
-  );
-}
-
-export function StoreDetail() {
-  const { id } = useParams();
-  const [store, setStore] = React.useState<StoreProfile | null>(null);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    if (!id) return;
-    setLoading(true);
-    getStoreById(id)
-      .then(setStore)
-      .finally(() => setLoading(false));
-  }, [id]);
-
-  if (loading) {
-    return (
-      <PageShell title="Loading store" description="Fetching storefront details...">
-        <p className="text-muted-foreground">Loading...</p>
-      </PageShell>
-    );
-  }
-
-  if (!store) {
-    return <DetailNotFound label="Store" />;
-  }
-
-  return (
-    <PageShell title={store.name} description={store.description}>
-      {store.image ? (
-        <div className="mb-6 overflow-hidden rounded-xl border border-border">
-          <img src={store.image} alt={store.name} className="h-56 w-full object-cover" />
-        </div>
-      ) : null}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <MetricCard title="Rating" value={String(store.rating)} detail={store.category} />
-        <MetricCard title="Followers" value={store.followers.toLocaleString('en-ZA')} detail={store.location} />
-        <MetricCard
-          title="Verification"
-          value={store.verified ? 'Verified' : 'Pending'}
-          detail={store.supportEmail ?? 'Business profile checks available'}
-        />
-      </div>
-      <div className="mt-6 flex flex-wrap gap-3">
-        <Button asChild>
-          <Link to={`/marketplace?q=${encodeURIComponent(store.name)}`}>View listings</Link>
-        </Button>
-        <Button variant="outline" asChild>
-          <Link to="/store">Browse all stores</Link>
-        </Button>
-      </div>
     </PageShell>
   );
 }

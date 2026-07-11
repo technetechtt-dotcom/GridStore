@@ -21,10 +21,10 @@ export class MemoryStoresStore implements StoresStore {
     this.stores = seedStores.map((store) => ({
       ...store,
       ownerId: 'user-demo-seller',
-      supportEmail: 'seller@gridstore.local',
+      supportEmail: store.supportEmail ?? 'seller@gridstore.local',
       status: 'active' as const,
-      verified: true,
-      image: DEFAULT_STORE_IMAGE,
+      verified: store.verified ?? true,
+      image: store.image ?? DEFAULT_STORE_IMAGE,
       createdAt: new Date().toISOString(),
     }));
     this.seeded = true;

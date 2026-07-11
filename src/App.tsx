@@ -15,9 +15,9 @@ import {
   Jobs,
   SellerDashboard,
   BuyerDashboard,
-  Storefront,
   Messages } from
-'./pages/Placeholders';
+    './pages/Placeholders';
+import { StoresDirectory, StoreDetail } from './pages/StorePages';
 import { NotFound } from './pages/NotFound';
 import { Login, Signup } from './pages/Auth';
 import { Cart, Checkout, OrderHistory, Wishlist, Notifications } from './pages/UserPages';
@@ -62,7 +62,6 @@ import {
   SellerToolsPage,
   ServiceDetail,
   StoreCreate,
-  StoreDetail,
   TrustSafety,
 } from './pages/PlatformPages';
 export function App() {
@@ -119,7 +118,8 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
-              <Route path="/store" element={<Storefront />} />
+              <Route path="/store" element={<StoresDirectory />} />
+              <Route path="/stores" element={<StoresDirectory />} />
               <Route
                 path="/store/create"
                 element={

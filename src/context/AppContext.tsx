@@ -198,13 +198,43 @@ const defaultThreads: MessageThread[] = [
   },
 ];
 
-const defaultSellerListings: SellerListing[] = products.slice(0, 3).map((product, index) => ({
-  ...product,
-  status: index === 2 ? 'paused' : 'active',
-  inventory: [8, 4, 2][index] ?? 1,
-  riskScore: [9, 12, 18][index] ?? 10,
-  verified: true,
-}));
+const auctionSeeds: SellerListing[] = [
+  products.find((item) => item.id === 'prod-dji-mini4'),
+  products.find((item) => item.id === 'prod-aeron-chair'),
+  products.find((item) => item.id === 'prod-toyota-rav4'),
+]
+  .filter((item): item is (typeof products)[number] => Boolean(item))
+  .map((product, index) => {
+    const live = index < 2;
+    return {
+      ...product,
+      status: 'active' as const,
+      inventory: 1,
+      riskScore: [11, 8, 15][index] ?? 10,
+      verified: true,
+      saleMode: 'auction' as const,
+      startingBid: [12000, 15000, 480000][index] ?? product.price * 0.7,
+      currentBid: [14500, 18200, 512000][index] ?? product.price,
+      bidIncrement: [250, 200, 5000][index] ?? 100,
+      reservePrice: index === 0 ? 16000 : undefined,
+      auctionEndsAt: live
+        ? new Date(Date.now() + 1000 * 60 * 60 * (18 + index * 24)).toISOString()
+        : new Date(Date.now() - 1000 * 60 * 60 * 8).toISOString(),
+      auctionStatus: live ? ('live' as const) : ('ended' as const),
+      bidCount: [9, 14, 27][index] ?? 0,
+    };
+  });
+
+const defaultSellerListings: SellerListing[] = [
+  ...products.slice(0, 3).map((product, index) => ({
+    ...product,
+    status: (index === 2 ? 'paused' : 'active') as SellerListing['status'],
+    inventory: [8, 4, 2][index] ?? 1,
+    riskScore: [9, 12, 18][index] ?? 10,
+    verified: true,
+  })),
+  ...auctionSeeds,
+];
 
 const defaultState: PersistedState = {
   user: null,

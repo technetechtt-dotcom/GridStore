@@ -52,6 +52,32 @@ export interface Job {
   status?: 'active' | 'paused' | 'flagged';
 }
 
+export interface StoreReview {
+  id: string;
+  author: string;
+  rating: number;
+  title: string;
+  comment: string;
+  createdAt: string;
+  listingTitle?: string;
+}
+
+export interface StoreSoldItem {
+  id: string;
+  title: string;
+  price: number;
+  image: string;
+  soldAt: string;
+  category: string;
+}
+
+export interface StorePolicy {
+  returns: string;
+  shipping: string;
+  payment: string;
+  warranty?: string;
+}
+
 export interface StoreProfile {
   id: string;
   name: string;
@@ -64,6 +90,16 @@ export interface StoreProfile {
   status?: 'active' | 'draft' | 'paused';
   verified?: boolean;
   image?: string;
+  bannerImage?: string;
+  about?: string;
+  policy?: StorePolicy;
+  categories?: string[];
+  handlingTime?: string;
+  memberSince?: string;
+  responseTime?: string;
+  reviewCount?: number;
+  reviews?: StoreReview[];
+  recentlySold?: StoreSoldItem[];
 }
 
 export interface AppUser {

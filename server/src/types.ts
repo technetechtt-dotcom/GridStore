@@ -51,6 +51,13 @@ export interface Job {
   status?: CatalogItemStatus;
 }
 
+export interface StorePolicy {
+  returns: string;
+  shipping: string;
+  payment: string;
+  warranty?: string;
+}
+
 export interface StoreProfile {
   id: string;
   name: string;
@@ -63,6 +70,14 @@ export interface StoreProfile {
   status?: 'active' | 'draft' | 'paused';
   verified?: boolean;
   image?: string;
+  bannerImage?: string;
+  about?: string;
+  policy?: StorePolicy;
+  categories?: string[];
+  handlingTime?: string;
+  memberSince?: string;
+  responseTime?: string;
+  reviewCount?: number;
 }
 
 export type UserRole = 'buyer' | 'seller' | 'moderator' | 'admin';
