@@ -26,6 +26,12 @@ services:
         value: "false"
       - key: REQUIRE_MFA
         value: "true"
+      - key: PAYMENT_PROVIDER
+        value: sandbox
+      - key: PAYMENT_SANDBOX_AUTO_CAPTURE
+        value: "false"
+      - key: PAYMENT_WEBHOOK_SECRET
+        generateValue: true
       - key: CORS_ORIGIN
         fromService:
           type: web

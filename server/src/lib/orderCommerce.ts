@@ -115,7 +115,7 @@ export function assertOrderTransition(
 ): { status: Order['status']; paymentStatus?: Order['paymentStatus'] } {
   switch (action) {
     case 'confirm_payment': {
-      if (!['admin', 'moderator'].includes(actor.role)) {
+      if (!['admin', 'moderator', 'system'].includes(actor.role)) {
         throw new Error('Only staff can confirm payment');
       }
       if (order.status !== 'pending_payment') {

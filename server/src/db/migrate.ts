@@ -395,4 +395,66 @@ export async function migrate() {
     )
   `;
   await db`CREATE INDEX IF NOT EXISTS idx_gridstore_inventory_adj_listing ON gridstore_inventory_adjustments(listing_id, created_at DESC)`;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_payments (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL REFERENCES gridstore_orders(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES gridstore_users(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      provider_reference TEXT NOT NULL UNIQUE,
+      amount_cents BIGINT NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'ZAR',
+      status TEXT NOT NULL,
+      authorization_url TEXT,
+      idempotency_key TEXT,
+      refunded_cents BIGINT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      captured_at TIMESTAMPTZ,
+      failed_at TIMESTAMPTZ
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS idx_gridstore_payments_order ON gridstore_payments(order_id)`;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_payment_webhooks (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      provider_event_id TEXT NOT NULL,
+      payment_id TEXT NOT NULL REFERENCES gridstore_payments(id) ON DELETE CASCADE,
+      payload_hash TEXT NOT NULL,
+      processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (provider, provider_event_id)
+    )
+  `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_ledger_journals (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      order_id TEXT,
+      payment_id TEXT,
+      created_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_ledger_entries (
+      id TEXT PRIMARY KEY,
+      journal_id TEXT NOT NULL REFERENCES gridstore_ledger_journals(id) ON DELETE CASCADE,
+      account TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK (direction IN ('debit', 'credit')),
+      amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+      currency TEXT NOT NULL DEFAULT 'ZAR',
+      order_id TEXT,
+      payment_id TEXT,
+      memo TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS idx_gridstore_ledger_entries_journal ON gridstore_ledger_entries(journal_id)`;
 }

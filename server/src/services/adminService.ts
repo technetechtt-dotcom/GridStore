@@ -160,6 +160,29 @@ export async function updateAdminOrder(
 }
 
 export async function listAdminPayments(): Promise<AdminPaymentRow[]> {
+  const { adminListPayments } = await import('./paymentService.js');
+  const providerPayments = adminListPayments();
+  if (providerPayments.length) {
+    return providerPayments.map((payment) => ({
+      id: payment.id,
+      reference: payment.reference,
+      method: payment.method,
+      amount: payment.amount,
+      status:
+        payment.status === 'captured'
+          ? 'Settled'
+          : payment.status === 'authorized'
+            ? 'Authorized'
+            : payment.status === 'refunded' || payment.status === 'partially_refunded'
+              ? 'Refunded'
+              : payment.status === 'failed'
+                ? 'Failed'
+                : 'Pending',
+      buyer: payment.buyer,
+      createdAt: payment.createdAt,
+    }));
+  }
+
   const orders = await listAdminOrders();
   return orders.map((order) => ({
     id: order.id,

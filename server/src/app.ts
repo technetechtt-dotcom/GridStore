@@ -20,6 +20,7 @@ import { notificationsRouter } from './routes/notifications.js';
 import { auctionsRouter } from './routes/auctions.js';
 import { offersRouter } from './routes/offers.js';
 import { ordersRouter } from './routes/orders.js';
+import { paymentsRouter } from './routes/payments.js';
 import { productsRouter } from './routes/products.js';
 import { rentalsRouter } from './routes/rentals.js';
 import { reportsRouter } from './routes/reports.js';
@@ -167,6 +168,7 @@ export function createApp() {
   api.use('/offers', offersRouter);
   api.use('/auctions', bidLimiter, auctionsRouter);
   api.use('/orders', ordersRouter);
+  api.use('/payments', paymentsRouter);
   api.use('/listings', listingsRouter);
   api.use('/cart', cartRouter);
   api.use('/wishlist', wishlistRouter);

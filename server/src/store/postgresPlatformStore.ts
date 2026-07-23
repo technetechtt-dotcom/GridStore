@@ -1040,7 +1040,10 @@ export class PostgresPlatformStore implements PlatformStore {
       }
     }
 
-    const pendingPayment = input.paymentMethod === 'manual_eft';
+    const pendingPayment =
+      input.paymentMethod === 'manual_eft' ||
+      input.paymentMethod === 'card' ||
+      input.paymentMethod === 'paystack';
     const order: Order = {
       id: createId('ord'),
       userId,
@@ -1119,6 +1122,17 @@ export class PostgresPlatformStore implements PlatformStore {
         detail: { paymentMethod: input.paymentMethod, totalCents },
       })
     );
+
+    if (input.paymentMethod === 'card' || input.paymentMethod === 'paystack') {
+      const { createIntentForOrder } = await import('../services/paymentService.js');
+      await createIntentForOrder({
+        orderId: order.id,
+        userId,
+        idempotencyKey: idemKey ? `pay-${idemKey}` : undefined,
+      });
+      const refreshed = this.orders.find((item) => item.id === order.id);
+      return refreshed ?? order;
+    }
 
     return order;
   }
