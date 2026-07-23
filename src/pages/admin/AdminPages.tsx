@@ -301,8 +301,8 @@ export function AdminUsers() {
 
   const submitPasswordReset = async () => {
     if (!resetUser) return;
-    if (newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters');
+    if (newPassword.length < 10) {
+      toast.error('Password must be at least 10 characters');
       return;
     }
 
@@ -335,7 +335,6 @@ export function AdminUsers() {
               <TableRow>
                 <TableHead>User</TableHead>
                 <TableHead>Role</TableHead>
-                <TableHead>Password</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -351,16 +350,14 @@ export function AdminUsers() {
                   </TableCell>
                   <TableCell>{user.role}</TableCell>
                   <TableCell>
-                    {user.password ? (
-                      <code className="rounded bg-muted px-2 py-1 text-xs">{user.password}</code>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Not stored</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
                     <Badge variant={user.verified ? 'default' : 'secondary'}>
                       {user.verified ? 'Verified' : 'Pending'}
                     </Badge>
+                    {user.mustChangePassword ? (
+                      <Badge variant="outline" className="ml-2">
+                        Reset required
+                      </Badge>
+                    ) : null}
                   </TableCell>
                   <TableCell className="text-right space-x-2">
                     <Button size="sm" variant="outline" onClick={() => openResetDialog(user)}>
@@ -382,8 +379,8 @@ export function AdminUsers() {
           <DialogHeader>
             <DialogTitle>Reset password</DialogTitle>
             <DialogDescription>
-              Set a new password for {resetUser?.name}. The new password will be visible in the
-              users table.
+              Set a new temporary password for {resetUser?.name}. The password is never shown in the
+              dashboard or API responses. The user must change it on next login.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -391,7 +388,7 @@ export function AdminUsers() {
               type="password"
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
-              placeholder="New password (min 6 characters)"
+              placeholder="New password (min 10 chars, mixed case + number)"
               autoFocus
             />
             <div className="flex justify-end gap-2">

@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { requirePrivilegedMfa } from '../middleware/mfa.js';
 import { requireAdmin, requireModerator } from '../middleware/roles.js';
+import { listSecurityEvents, recordSecurityEvent } from '../lib/security.js';
+import { platformStore } from '../store/index.js';
 import {
   getAdminAnalytics,
   getAdminStats,
@@ -32,6 +35,7 @@ import {
 export const adminRouter = Router();
 
 adminRouter.use(requireAuth);
+adminRouter.use(requirePrivilegedMfa);
 adminRouter.use(requireModerator);
 
 adminRouter.get('/stats', async (_req, res) => {
@@ -51,6 +55,7 @@ adminRouter.patch('/users/:id', requireAdmin, async (req, res) => {
     .object({
       role: z.enum(['buyer', 'seller', 'moderator', 'admin']).optional(),
       verified: z.boolean().optional(),
+      currentPassword: z.string().min(1).optional(),
     })
     .safeParse(req.body);
   if (!parsed.success) {
@@ -59,7 +64,38 @@ adminRouter.patch('/users/:id', requireAdmin, async (req, res) => {
   }
 
   try {
-    const user = await updateAdminUser(req.params.id, parsed.data);
+    if (parsed.data.role === 'admin' || parsed.data.role === 'moderator') {
+      if (!parsed.data.currentPassword) {
+        res.status(400).json({ error: 'Reauthentication required to grant privileged roles' });
+        return;
+      }
+      const actor = (req as import('../middleware/auth.js').AuthenticatedRequest).user;
+      const valid = actor
+        ? await platformStore.verifyPassword(actor.id, parsed.data.currentPassword)
+        : false;
+      if (!valid) {
+        recordSecurityEvent('admin.role_grant.reauth_failed', {
+          actorId: actor?.id,
+          targetId: req.params.id,
+          ip: req.ip,
+          requestId: req.requestId,
+        });
+        res.status(401).json({ error: 'Reauthentication failed' });
+        return;
+      }
+    }
+
+    const { currentPassword: _password, ...patch } = parsed.data;
+    const user = await updateAdminUser(req.params.id, patch);
+    if (patch.role) {
+      recordSecurityEvent('admin.role_changed', {
+        actorId: (req as import('../middleware/auth.js').AuthenticatedRequest).user?.id,
+        targetId: req.params.id,
+        ip: req.ip,
+        requestId: req.requestId,
+        detail: { role: patch.role },
+      });
+    }
     res.json(user);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update user';
@@ -68,20 +104,35 @@ adminRouter.patch('/users/:id', requireAdmin, async (req, res) => {
 });
 
 adminRouter.post('/users/:id/reset-password', requireAdmin, async (req, res) => {
-  const parsed = z.object({ password: z.string().min(6) }).safeParse(req.body);
+  const parsed = z.object({ password: z.string().min(10) }).safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: 'Password must be at least 6 characters' });
+    res.status(400).json({ error: 'Password must meet policy requirements' });
     return;
   }
 
   try {
     const user = await resetAdminUserPassword(req.params.id, parsed.data.password);
-    res.json(user);
+    recordSecurityEvent('admin.password_reset', {
+      actorId: (req as import('../middleware/auth.js').AuthenticatedRequest).user?.id,
+      targetId: req.params.id,
+      ip: req.ip,
+      requestId: req.requestId,
+    });
+    res.json({
+      id: user.id,
+      email: user.email,
+      mustChangePassword: true,
+      message: 'Password reset. The new password is not returned in API responses.',
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to reset password';
     const status = message === 'User not found' ? 404 : 400;
     res.status(status).json({ error: message });
   }
+});
+
+adminRouter.get('/security-events', requireAdmin, (_req, res) => {
+  res.json({ events: listSecurityEvents(100) });
 });
 
 adminRouter.get('/listings', async (_req, res) => {

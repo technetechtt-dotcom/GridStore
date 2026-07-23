@@ -155,12 +155,28 @@ export interface AuctionBid {
 
 export interface StoredUser extends AppUser {
   passwordHash: string;
-  passwordPlaintext?: string | null;
+  mustChangePassword?: boolean;
+  mfaEnabled?: boolean;
+  mfaSecret?: string | null;
 }
 
 export interface AdminUserRow extends AppUser {
-  password: string | null;
+  mustChangePassword?: boolean;
+  mfaEnabled?: boolean;
   createdAt?: string;
+}
+
+export interface SellerApplication {
+  id: string;
+  userId: string;
+  businessName: string;
+  category: string;
+  location: string;
+  description: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  reviewedAt?: string;
+  reviewerId?: string;
 }
 
 export interface NotificationItem {

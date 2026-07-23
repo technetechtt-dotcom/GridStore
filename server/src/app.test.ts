@@ -90,7 +90,7 @@ describe('gridstore api', () => {
   it('logs in demo seller and returns session token', async () => {
     const response = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'seller@gridstore.local', password: 'demo1234', role: 'seller' });
+      .send({ email: 'seller@gridstore.local', password: 'DemoSeed-ChangeMe1' });
 
     expect(response.status).toBe(200);
     expect(response.body.user.sessionToken).toBeTruthy();
@@ -100,7 +100,7 @@ describe('gridstore api', () => {
   it('creates order and seller listing for authenticated user', async () => {
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'buyer@gridstore.local', password: 'demo1234' });
+      .send({ email: 'buyer@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const token = login.body.user.sessionToken as string;
 
     const order = await request(app)
@@ -125,7 +125,7 @@ describe('gridstore api', () => {
 
     const sellerLogin = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'seller@gridstore.local', password: 'demo1234', role: 'seller' });
+      .send({ email: 'seller@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const sellerToken = sellerLogin.body.user.sessionToken as string;
 
     const listing = await request(app)
@@ -154,7 +154,7 @@ describe('gridstore api', () => {
   it('persists cart and booking requests for authenticated user', async () => {
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'buyer@gridstore.local', password: 'demo1234' });
+      .send({ email: 'buyer@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const token = login.body.user.sessionToken as string;
 
     const cart = await request(app)
@@ -182,10 +182,10 @@ describe('gridstore api', () => {
   it('seeds default notifications independently per user', async () => {
     const buyerLogin = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'buyer@gridstore.local', password: 'demo1234' });
+      .send({ email: 'buyer@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const sellerLogin = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'seller@gridstore.local', password: 'demo1234', role: 'seller' });
+      .send({ email: 'seller@gridstore.local', password: 'DemoSeed-ChangeMe1' });
 
     const buyerToken = buyerLogin.body.user.sessionToken as string;
     const sellerToken = sellerLogin.body.user.sessionToken as string;
@@ -209,7 +209,7 @@ describe('gridstore api', () => {
   it('returns ops stats for admin user', async () => {
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'admin@gridstore.local', password: 'demo1234', role: 'admin' });
+      .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
 
     expect(login.status).toBe(200);
     const token = login.body.user.sessionToken as string;
@@ -224,10 +224,10 @@ describe('gridstore api', () => {
     expect(stats.body.totalStores).toBeGreaterThan(0);
   });
 
-  it('lists user passwords and supports admin password reset', async () => {
+  it('never returns passwords and supports admin password reset without echoing secrets', async () => {
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'admin@gridstore.local', password: 'demo1234', role: 'admin' });
+      .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const token = login.body.user.sessionToken as string;
 
     const users = await request(app)
@@ -236,37 +236,120 @@ describe('gridstore api', () => {
 
     expect(users.status).toBe(200);
     expect(Array.isArray(users.body)).toBe(true);
+    expect(JSON.stringify(users.body)).not.toMatch(/"password(_plaintext)?"\s*:/i);
+    expect(users.body.every((user: Record<string, unknown>) => !('password' in user))).toBe(true);
 
     const seller = users.body.find(
       (user: { email: string }) => user.email === 'seller@gridstore.local'
     );
     expect(seller).toBeTruthy();
-    expect(seller.password).toBe('demo1234');
+    expect(seller.password).toBeUndefined();
 
     const reset = await request(app)
       .post(`/api/admin/users/${seller.id}/reset-password`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ password: 'newpass99' });
+      .send({ password: 'NewPass99xx' });
 
     expect(reset.status).toBe(200);
-    expect(reset.body.password).toBe('newpass99');
+    expect(reset.body.password).toBeUndefined();
+    expect(reset.body.mustChangePassword).toBe(true);
 
     const sellerLogin = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'seller@gridstore.local', password: 'newpass99', role: 'seller' });
+      .send({ email: 'seller@gridstore.local', password: 'NewPass99xx' });
 
     expect(sellerLogin.status).toBe(200);
 
     await request(app)
       .post(`/api/admin/users/${seller.id}/reset-password`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ password: 'demo1234' });
+      .send({ password: 'DemoSeed-ChangeMe1' });
+  });
+
+  it('rejects privilege escalation via signup, login, and oauth role fields', async () => {
+    const signup = await request(app).post('/api/auth/signup').send({
+      name: 'Attacker',
+      email: `attacker-${Date.now()}@example.com`,
+      password: 'AttackerPass1',
+      role: 'admin',
+    });
+    expect(signup.status).toBe(201);
+    expect(signup.body.user.role).toBe('buyer');
+
+    const forgedLogin = await request(app).post('/api/auth/login').send({
+      email: `missing-admin-${Date.now()}@example.com`,
+      password: 'AttackerPass1',
+      role: 'admin',
+    });
+    expect(forgedLogin.status).toBe(400);
+
+    const oauth = await request(app).post('/api/auth/oauth').send({
+      provider: 'google',
+      role: 'admin',
+    });
+    expect(oauth.status).toBe(200);
+    expect(oauth.body.user.role).toBe('buyer');
+  });
+
+  it('requires reauthentication to grant privileged roles', async () => {
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
+    const token = login.body.user.sessionToken as string;
+
+    const buyer = await request(app).post('/api/auth/signup').send({
+      name: 'Role Target',
+      email: `role-target-${Date.now()}@example.com`,
+      password: 'TargetPass12',
+    });
+    const userId = buyer.body.user.id as string;
+
+    const denied = await request(app)
+      .patch(`/api/admin/users/${userId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ role: 'admin' });
+    expect(denied.status).toBe(400);
+
+    const wrongPassword = await request(app)
+      .patch(`/api/admin/users/${userId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ role: 'moderator', currentPassword: 'WrongPass12' });
+    expect(wrongPassword.status).toBe(401);
+
+    const granted = await request(app)
+      .patch(`/api/admin/users/${userId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ role: 'moderator', currentPassword: 'DemoSeed-ChangeMe1' });
+    expect(granted.status).toBe(200);
+    expect(granted.body.role).toBe('moderator');
+  });
+
+  it('supports seller applications instead of public seller signup', async () => {
+    const signup = await request(app).post('/api/auth/signup').send({
+      name: 'Future Seller',
+      email: `seller-app-${Date.now()}@example.com`,
+      password: 'SellerPass12',
+    });
+    const token = signup.body.user.sessionToken as string;
+    expect(signup.body.user.role).toBe('buyer');
+
+    const application = await request(app)
+      .post('/api/seller-applications')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        businessName: 'Future Shop',
+        category: 'Electronics',
+        location: 'Cape Town',
+        description: 'We want to sell cameras and accessories on GridStore.',
+      });
+    expect(application.status).toBe(201);
+    expect(application.body.application.status).toBe('pending');
   });
 
   it('lists and updates stores for admin user', async () => {
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'admin@gridstore.local', password: 'demo1234', role: 'admin' });
+      .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const token = login.body.user.sessionToken as string;
 
     const stores = await request(app)
@@ -291,7 +374,7 @@ describe('gridstore api', () => {
   it('lists and updates marketplace catalog for admin user', async () => {
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'admin@gridstore.local', password: 'demo1234', role: 'admin' });
+      .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const token = login.body.user.sessionToken as string;
 
     const products = await request(app)
@@ -314,7 +397,7 @@ describe('gridstore api', () => {
   it('lists and updates auctions for admin user', async () => {
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'admin@gridstore.local', password: 'demo1234', role: 'admin' });
+      .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const token = login.body.user.sessionToken as string;
 
     const auctions = await request(app)
@@ -344,10 +427,10 @@ describe('gridstore api', () => {
   it('supports haggle offers between buyer and seller', async () => {
     const buyerLogin = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'buyer@gridstore.local', password: 'demo1234' });
+      .send({ email: 'buyer@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const sellerLogin = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'seller@gridstore.local', password: 'demo1234', role: 'seller' });
+      .send({ email: 'seller@gridstore.local', password: 'DemoSeed-ChangeMe1' });
 
     const buyerToken = buyerLogin.body.user.sessionToken as string;
     const sellerToken = sellerLogin.body.user.sessionToken as string;
@@ -382,7 +465,7 @@ describe('gridstore api', () => {
   it('supports live auction bidding', async () => {
     const buyerLogin = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'buyer@gridstore.local', password: 'demo1234' });
+      .send({ email: 'buyer@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const buyerToken = buyerLogin.body.user.sessionToken as string;
 
     const auctions = await request(app).get('/api/auctions');
@@ -405,7 +488,7 @@ describe('gridstore api', () => {
   it('creates and lists seller storefronts', async () => {
     const sellerLogin = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'seller@gridstore.local', password: 'demo1234', role: 'seller' });
+      .send({ email: 'seller@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const token = sellerLogin.body.user.sessionToken as string;
 
     const created = await request(app)

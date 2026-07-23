@@ -1,20 +1,30 @@
 import bcrypt from 'bcryptjs';
+import { env } from '../config/env.js';
 import { seedProducts } from '../data/seed.js';
 import { requireSql } from '../db/client.js';
 import { migrate } from '../db/migrate.js';
+import { DEMO_SEED_PASSWORD, demoListingBadge } from '../lib/demo.js';
+import { createId } from '../lib/ids.js';
 import { resolveSaleFields } from '../lib/listingSale.js';
 import { matchesQuery } from '../lib/search.js';
+import { assertPasswordPolicy, generateMfaSecret, verifyTotp } from '../lib/security.js';
 import { signToken } from '../lib/tokens.js';
 import type {
   AppUser,
   AuthUser,
   Order,
   OrderLine,
+  SellerApplication,
   SellerListing,
   StoredUser,
   UserRole,
 } from '../types.js';
-import type { CreateOrderInput, ListingInput, PlatformStore } from './storeTypes.js';
+import type {
+  CreateOrderInput,
+  ListingInput,
+  PlatformStore,
+  SellerApplicationInput,
+} from './storeTypes.js';
 
 interface UserRow {
   id: string;
@@ -23,7 +33,9 @@ interface UserRow {
   role: UserRole;
   verified: boolean;
   password_hash: string;
-  password_plaintext?: string | null;
+  must_change_password?: boolean;
+  mfa_enabled?: boolean;
+  mfa_secret?: string | null;
   created_at?: string;
 }
 
@@ -74,7 +86,9 @@ function rowToStoredUser(row: UserRow): StoredUser {
     role: row.role,
     verified: row.verified,
     passwordHash: row.password_hash,
-    passwordPlaintext: row.password_plaintext ?? null,
+    mustChangePassword: Boolean(row.must_change_password),
+    mfaEnabled: Boolean(row.mfa_enabled),
+    mfaSecret: row.mfa_secret ?? null,
   };
 }
 
@@ -85,7 +99,8 @@ function rowToAdminUser(row: UserRow) {
     email: row.email,
     role: row.role,
     verified: row.verified,
-    password: row.password_plaintext ?? null,
+    mustChangePassword: Boolean(row.must_change_password),
+    mfaEnabled: Boolean(row.mfa_enabled),
     createdAt: row.created_at,
   };
 }
@@ -165,8 +180,10 @@ export class PostgresPlatformStore implements PlatformStore {
     this.listings = listingRows.map(rowToListing);
 
     if (this.users.size === 0) {
-      await this.seedDemoData();
-    } else {
+      if (env.enableDemoData) {
+        await this.seedDemoData();
+      }
+    } else if (env.enableDemoData) {
       await this.ensureDemoUsers();
     }
 
@@ -175,28 +192,7 @@ export class PostgresPlatformStore implements PlatformStore {
 
   private async ensureDemoUsers() {
     const db = requireSql();
-    const demoPassword = await bcrypt.hash('demo1234', 10);
-    const demoEmails = [
-      'admin@gridstore.local',
-      'seller@gridstore.local',
-      'buyer@gridstore.local',
-    ];
-
-    for (const email of demoEmails) {
-      const existing = this.getUserByEmail(email);
-      if (!existing) continue;
-
-      const valid = await bcrypt.compare('demo1234', existing.passwordHash);
-      if (!valid || existing.passwordPlaintext !== 'demo1234') {
-        existing.passwordHash = demoPassword;
-        existing.passwordPlaintext = 'demo1234';
-        await db`
-          UPDATE gridstore_users
-          SET password_hash = ${existing.passwordHash}, password_plaintext = ${existing.passwordPlaintext}
-          WHERE id = ${existing.id}
-        `;
-      }
-    }
+    const demoPassword = await bcrypt.hash(DEMO_SEED_PASSWORD, 10);
 
     const admin = this.getUserByEmail('admin@gridstore.local');
     if (admin) return;
@@ -208,12 +204,14 @@ export class PostgresPlatformStore implements PlatformStore {
       role: 'admin',
       verified: true,
       passwordHash: demoPassword,
-      passwordPlaintext: 'demo1234',
+      mustChangePassword: true,
+      mfaEnabled: false,
+      mfaSecret: null,
     };
 
     await db`
-      INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, password_plaintext)
-      VALUES (${adminUser.id}, ${adminUser.name}, ${adminUser.email}, ${adminUser.role}, ${adminUser.verified}, ${adminUser.passwordHash}, ${adminUser.passwordPlaintext})
+      INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, must_change_password, mfa_enabled)
+      VALUES (${adminUser.id}, ${adminUser.name}, ${adminUser.email}, ${adminUser.role}, ${adminUser.verified}, ${adminUser.passwordHash}, true, false)
       ON CONFLICT (email) DO NOTHING
     `;
     this.users.set(adminUser.id, adminUser);
@@ -221,7 +219,7 @@ export class PostgresPlatformStore implements PlatformStore {
 
   private async seedDemoData() {
     const db = requireSql();
-    const demoPassword = await bcrypt.hash('demo1234', 10);
+    const demoPassword = await bcrypt.hash(DEMO_SEED_PASSWORD, 10);
 
     const seller: StoredUser = {
       id: 'user-demo-seller',
@@ -230,7 +228,8 @@ export class PostgresPlatformStore implements PlatformStore {
       role: 'seller',
       verified: true,
       passwordHash: demoPassword,
-      passwordPlaintext: 'demo1234',
+      mustChangePassword: true,
+      mfaEnabled: false,
     };
 
     const buyer: StoredUser = {
@@ -240,7 +239,8 @@ export class PostgresPlatformStore implements PlatformStore {
       role: 'buyer',
       verified: true,
       passwordHash: demoPassword,
-      passwordPlaintext: 'demo1234',
+      mustChangePassword: true,
+      mfaEnabled: false,
     };
 
     const admin: StoredUser = {
@@ -250,13 +250,15 @@ export class PostgresPlatformStore implements PlatformStore {
       role: 'admin',
       verified: true,
       passwordHash: demoPassword,
-      passwordPlaintext: 'demo1234',
+      mustChangePassword: true,
+      mfaEnabled: false,
+      mfaSecret: generateMfaSecret(),
     };
 
     for (const user of [seller, buyer, admin]) {
       await db`
-        INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, password_plaintext)
-        VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash}, ${user.passwordPlaintext})
+        INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, must_change_password, mfa_enabled, mfa_secret)
+        VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash}, true, ${Boolean(user.mfaEnabled)}, ${user.mfaSecret ?? null})
       `;
       this.users.set(user.id, user);
     }
@@ -264,6 +266,8 @@ export class PostgresPlatformStore implements PlatformStore {
     this.listings = seedProducts.slice(0, 3).map((product, index) => {
       const base = {
         ...product,
+        title: demoListingBadge(product.title),
+        badge: 'Demonstration',
         sellerId: seller.id,
         status: (index === 2 ? 'paused' : 'active') as SellerListing['status'],
         inventory: [8, 4, 2][index] ?? 1,
@@ -275,11 +279,11 @@ export class PostgresPlatformStore implements PlatformStore {
         return {
           ...base,
           ...resolveSaleFields({
-            title: product.title,
+            title: base.title,
             category: product.category,
             price: product.price,
             inventory: base.inventory,
-            description: product.description,
+            description: `Demonstration listing. ${product.description}`,
             location: product.location,
             saleMode: 'auction',
             startingBid: Math.round(product.price * 0.6),
@@ -293,11 +297,11 @@ export class PostgresPlatformStore implements PlatformStore {
         return {
           ...base,
           ...resolveSaleFields({
-            title: product.title,
+            title: base.title,
             category: product.category,
             price: product.price,
             inventory: base.inventory,
-            description: product.description,
+            description: `Demonstration listing. ${product.description}`,
             location: product.location,
             saleMode: 'haggle',
             haggleEnabled: true,
@@ -308,11 +312,11 @@ export class PostgresPlatformStore implements PlatformStore {
       return {
         ...base,
         ...resolveSaleFields({
-          title: product.title,
+          title: base.title,
           category: product.category,
           price: product.price,
           inventory: base.inventory,
-          description: product.description,
+          description: `Demonstration listing. ${product.description}`,
           location: product.location,
         }),
       };
@@ -367,11 +371,9 @@ export class PostgresPlatformStore implements PlatformStore {
     );
   }
 
-  async signup(name: string, email: string, password: string, role: UserRole): Promise<AuthUser> {
+  async signup(name: string, email: string, password: string): Promise<AuthUser> {
     await this.ensureSeeded();
-    if (password.length < 8) {
-      throw new Error('Password must be at least 8 characters');
-    }
+    assertPasswordPolicy(password);
     if (this.getUserByEmail(email)) {
       throw new Error('An account with this email already exists');
     }
@@ -379,57 +381,41 @@ export class PostgresPlatformStore implements PlatformStore {
     const user = this.cacheUser({
       id: createId('user'),
       name: name.trim(),
-      email: email.trim(),
-      role,
+      email: email.trim().toLowerCase(),
+      role: 'buyer',
       verified: false,
       passwordHash: await bcrypt.hash(password, 10),
-      passwordPlaintext: password,
+      mustChangePassword: false,
+      mfaEnabled: false,
     });
 
     const db = requireSql();
     await db`
-      INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, password_plaintext)
-      VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash}, ${user.passwordPlaintext})
+      INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, must_change_password, mfa_enabled)
+      VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash}, false, false)
     `;
 
     return this.toAuthUser(user);
   }
 
-  async login(email: string, password: string, role: UserRole = 'buyer'): Promise<AuthUser> {
+  async login(email: string, password: string): Promise<AuthUser> {
     await this.ensureSeeded();
-    if (password.length < 6) {
-      throw new Error('Password must be at least 6 characters');
+    const user = this.getUserByEmail(email);
+    if (!user || !user.passwordHash) {
+      throw new Error('Invalid email or password');
     }
-
-    let user = this.getUserByEmail(email);
-    if (!user) {
-      user = this.cacheUser({
-        id: createId('user'),
-        name: inferRoleFromEmail(email, role) === 'seller' ? 'Seller Account' : 'Buyer Account',
-        email: email.trim(),
-        role: inferRoleFromEmail(email, role),
-        verified: true,
-        passwordHash: await bcrypt.hash(password, 10),
-        passwordPlaintext: password,
-      });
-
-      const db = requireSql();
-      await db`
-        INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, password_plaintext)
-        VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash}, ${user.passwordPlaintext})
-      `;
-    } else {
-      const valid = await bcrypt.compare(password, user.passwordHash);
-      if (!valid) {
-        throw new Error('Invalid email or password');
-      }
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      throw new Error('Invalid email or password');
     }
-
     return this.toAuthUser(user);
   }
 
-  async oauthLogin(provider: 'google' | 'github', role: UserRole): Promise<AuthUser> {
+  async oauthLogin(provider: 'google' | 'github'): Promise<AuthUser> {
     await this.ensureSeeded();
+    if (!env.allowSimulatedOauth) {
+      throw new Error('Simulated OAuth is disabled');
+    }
     const email = `${provider}.user@gridstore.local`;
     let user = this.getUserByEmail(email);
 
@@ -438,19 +424,211 @@ export class PostgresPlatformStore implements PlatformStore {
         id: createId(provider),
         name: `${provider === 'google' ? 'Google' : 'GitHub'} User`,
         email,
-        role,
+        role: 'buyer',
         verified: true,
         passwordHash: '',
+        mustChangePassword: false,
+        mfaEnabled: false,
       });
 
       const db = requireSql();
       await db`
-        INSERT INTO gridstore_users (id, name, email, role, verified, password_hash)
-        VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash})
+        INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, must_change_password, mfa_enabled)
+        VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash}, false, false)
       `;
     }
 
     return this.toAuthUser(user);
+  }
+
+  async verifyPassword(userId: string, password: string) {
+    const user = this.users.get(userId);
+    if (!user?.passwordHash) return false;
+    return bcrypt.compare(password, user.passwordHash);
+  }
+
+  async enableMfa(userId: string, secret: string) {
+    const user = this.users.get(userId);
+    if (!user) throw new Error('User not found');
+    user.mfaSecret = secret;
+    user.mfaEnabled = false;
+    const db = requireSql();
+    await db`
+      UPDATE gridstore_users
+      SET mfa_secret = ${secret}, mfa_enabled = false
+      WHERE id = ${userId}
+    `;
+    return this.toPublicUser(user);
+  }
+
+  async confirmMfa(userId: string, token: string) {
+    const user = this.users.get(userId);
+    if (!user?.mfaSecret) return false;
+    const ok = verifyTotp(user.mfaSecret, token);
+    if (!ok) return false;
+    user.mfaEnabled = true;
+    const db = requireSql();
+    await db`UPDATE gridstore_users SET mfa_enabled = true WHERE id = ${userId}`;
+    return true;
+  }
+
+  isMfaSatisfied(user: StoredUser, token?: string) {
+    if (user.role !== 'admin' && user.role !== 'moderator') return true;
+    if (!env.isProduction && process.env.REQUIRE_MFA !== 'true') {
+      return true;
+    }
+    if (!user.mfaEnabled || !user.mfaSecret) return false;
+    if (!token) return false;
+    return verifyTotp(user.mfaSecret, token);
+  }
+
+  async createSellerApplication(userId: string, input: SellerApplicationInput) {
+    await this.ensureSeeded();
+    const user = this.users.get(userId);
+    if (!user) throw new Error('User not found');
+    if (user.role === 'seller' || user.role === 'admin') {
+      throw new Error('Account already has seller privileges');
+    }
+    const db = requireSql();
+    const existing = await db`
+      SELECT id FROM gridstore_seller_applications WHERE user_id = ${userId} LIMIT 1
+    `;
+    if (existing.length) throw new Error('Seller application already submitted');
+
+    const application: SellerApplication = {
+      id: createId('sapp'),
+      userId,
+      businessName: input.businessName,
+      category: input.category,
+      location: input.location,
+      description: input.description,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+    await db`
+      INSERT INTO gridstore_seller_applications (
+        id, user_id, business_name, category, location, description, status, created_at
+      ) VALUES (
+        ${application.id}, ${application.userId}, ${application.businessName},
+        ${application.category}, ${application.location}, ${application.description},
+        ${application.status}, ${application.createdAt}
+      )
+    `;
+    return application;
+  }
+
+  async getSellerApplication(userId: string) {
+    await this.ensureSeeded();
+    const db = requireSql();
+    const rows = await db`
+      SELECT * FROM gridstore_seller_applications WHERE user_id = ${userId} LIMIT 1
+    `;
+    const row = rows[0] as
+      | {
+          id: string;
+          user_id: string;
+          business_name: string;
+          category: string;
+          location: string;
+          description: string;
+          status: SellerApplication['status'];
+          created_at: string;
+          reviewed_at?: string;
+          reviewer_id?: string;
+        }
+      | undefined;
+    if (!row) return undefined;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      businessName: row.business_name,
+      category: row.category,
+      location: row.location,
+      description: row.description,
+      status: row.status,
+      createdAt: row.created_at,
+      reviewedAt: row.reviewed_at,
+      reviewerId: row.reviewer_id,
+    };
+  }
+
+  async listSellerApplications() {
+    await this.ensureSeeded();
+    const db = requireSql();
+    const rows = (await db`
+      SELECT * FROM gridstore_seller_applications ORDER BY created_at DESC
+    `) as Array<{
+      id: string;
+      user_id: string;
+      business_name: string;
+      category: string;
+      location: string;
+      description: string;
+      status: SellerApplication['status'];
+      created_at: string;
+      reviewed_at?: string;
+      reviewer_id?: string;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      businessName: row.business_name,
+      category: row.category,
+      location: row.location,
+      description: row.description,
+      status: row.status,
+      createdAt: row.created_at,
+      reviewedAt: row.reviewed_at,
+      reviewerId: row.reviewer_id,
+    }));
+  }
+
+  async reviewSellerApplication(
+    applicationId: string,
+    reviewerId: string,
+    decision: 'approved' | 'rejected'
+  ) {
+    await this.ensureSeeded();
+    const db = requireSql();
+    const rows = await db`
+      SELECT * FROM gridstore_seller_applications WHERE id = ${applicationId} LIMIT 1
+    `;
+    const row = rows[0] as
+      | {
+          id: string;
+          user_id: string;
+          business_name: string;
+          category: string;
+          location: string;
+          description: string;
+          status: SellerApplication['status'];
+          created_at: string;
+        }
+      | undefined;
+    if (!row) throw new Error('Application not found');
+    const reviewedAt = new Date().toISOString();
+    await db`
+      UPDATE gridstore_seller_applications
+      SET status = ${decision}, reviewed_at = ${reviewedAt}, reviewer_id = ${reviewerId}
+      WHERE id = ${applicationId}
+    `;
+    if (decision === 'approved') {
+      await db`UPDATE gridstore_users SET role = 'seller' WHERE id = ${row.user_id}`;
+      const user = this.users.get(row.user_id);
+      if (user) user.role = 'seller';
+    }
+    return {
+      id: row.id,
+      userId: row.user_id,
+      businessName: row.business_name,
+      category: row.category,
+      location: row.location,
+      description: row.description,
+      status: decision,
+      createdAt: row.created_at,
+      reviewedAt,
+      reviewerId,
+    };
   }
 
   async updateProfile(userId: string, input: { name: string; email: string }): Promise<AppUser> {
@@ -732,31 +910,31 @@ export class PostgresPlatformStore implements PlatformStore {
   listAllUsersAdmin() {
     return Array.from(this.users.values()).map((user) => ({
       ...this.toPublicUser(user),
-      password: user.passwordPlaintext ?? null,
+      mustChangePassword: Boolean(user.mustChangePassword),
+      mfaEnabled: Boolean(user.mfaEnabled),
     }));
   }
 
   async adminResetUserPassword(userId: string, password: string) {
-    if (password.length < 6) {
-      throw new Error('Password must be at least 6 characters');
-    }
+    assertPasswordPolicy(password);
     const user = this.users.get(userId);
     if (!user) {
       throw new Error('User not found');
     }
     user.passwordHash = await bcrypt.hash(password, 10);
-    user.passwordPlaintext = password;
+    user.mustChangePassword = true;
 
     const db = requireSql();
     await db`
       UPDATE gridstore_users
-      SET password_hash = ${user.passwordHash}, password_plaintext = ${user.passwordPlaintext}
+      SET password_hash = ${user.passwordHash}, must_change_password = true
       WHERE id = ${userId}
     `;
 
     return {
       ...this.toPublicUser(user),
-      password: user.passwordPlaintext,
+      mustChangePassword: true,
+      mfaEnabled: Boolean(user.mfaEnabled),
     };
   }
 

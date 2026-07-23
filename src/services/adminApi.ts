@@ -63,7 +63,8 @@ export interface AdminPaymentRow {
 }
 
 export interface AdminUserRow extends AppUser {
-  password: string | null;
+  mustChangePassword?: boolean;
+  mfaEnabled?: boolean;
   createdAt?: string;
 }
 

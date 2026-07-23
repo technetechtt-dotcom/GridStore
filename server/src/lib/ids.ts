@@ -17,10 +17,7 @@ export function buildDisplayNameFromEmail(email: string) {
     .join(' ');
 }
 
-export function inferRoleFromEmail(email: string, fallback: import('../types.js').UserRole) {
-  const lower = (email ?? '').toLowerCase();
-  if (lower.includes('admin')) return 'admin';
-  if (lower.includes('mod')) return 'moderator';
-  if (lower.includes('seller') || lower.includes('store')) return 'seller';
-  return fallback;
+export function inferRoleFromEmail(_email: string, fallback: import('../types.js').UserRole) {
+  // Roles are loaded exclusively from the database. Never infer privileged roles from email.
+  return fallback === 'seller' ? 'seller' : 'buyer';
 }

@@ -19,7 +19,13 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
-        value: 7d
+        value: 15m
+      - key: ENABLE_DEMO_DATA
+        value: "false"
+      - key: ALLOW_SIMULATED_OAUTH
+        value: "false"
+      - key: REQUIRE_MFA
+        value: "true"
       - key: CORS_ORIGIN
         fromService:
           type: web

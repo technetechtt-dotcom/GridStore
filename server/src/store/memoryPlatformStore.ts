@@ -1,30 +1,44 @@
 import bcrypt from 'bcryptjs';
+import { env } from '../config/env.js';
 import { seedProducts } from '../data/seed.js';
-import { createId, inferRoleFromEmail, nowLabel } from '../lib/ids.js';
+import { DEMO_SEED_PASSWORD, demoListingBadge } from '../lib/demo.js';
+import { createId, nowLabel } from '../lib/ids.js';
 import { matchesQuery } from '../lib/search.js';
+import { assertPasswordPolicy, generateMfaSecret, verifyTotp } from '../lib/security.js';
 import { signToken } from '../lib/tokens.js';
 import type {
   AppUser,
   AuthUser,
   Order,
+  SellerApplication,
   SellerListing,
   StoredUser,
   UserRole,
 } from '../types.js';
-import type { CreateOrderInput, ListingInput, PlatformStore } from './storeTypes.js';
+import type {
+  CreateOrderInput,
+  ListingInput,
+  PlatformStore,
+  SellerApplicationInput,
+} from './storeTypes.js';
 import { resolveSaleFields } from '../lib/listingSale.js';
 
 export class MemoryPlatformStore implements PlatformStore {
   private users = new Map<string, StoredUser>();
   private orders: Order[] = [];
   private listings: SellerListing[] = [];
+  private sellerApplications = new Map<string, SellerApplication>();
   private seeded = false;
 
   async ensureSeeded() {
     if (this.seeded) return;
     this.seeded = true;
 
-    const demoPassword = await bcrypt.hash('demo1234', 10);
+    if (!env.enableDemoData) {
+      return;
+    }
+
+    const demoPassword = await bcrypt.hash(DEMO_SEED_PASSWORD, 10);
 
     const seller = this.createStoredUser({
       id: 'user-demo-seller',
@@ -33,7 +47,8 @@ export class MemoryPlatformStore implements PlatformStore {
       role: 'seller',
       verified: true,
       passwordHash: demoPassword,
-      passwordPlaintext: 'demo1234',
+      mustChangePassword: true,
+      mfaEnabled: false,
     });
 
     this.createStoredUser({
@@ -43,7 +58,8 @@ export class MemoryPlatformStore implements PlatformStore {
       role: 'buyer',
       verified: true,
       passwordHash: demoPassword,
-      passwordPlaintext: 'demo1234',
+      mustChangePassword: true,
+      mfaEnabled: false,
     });
 
     this.createStoredUser({
@@ -53,12 +69,16 @@ export class MemoryPlatformStore implements PlatformStore {
       role: 'admin',
       verified: true,
       passwordHash: demoPassword,
-      passwordPlaintext: 'demo1234',
+      mustChangePassword: true,
+      mfaEnabled: true,
+      mfaSecret: generateMfaSecret(),
     });
 
     this.listings = seedProducts.slice(0, 3).map((product, index) => {
       const base = {
         ...product,
+        title: demoListingBadge(product.title),
+        badge: 'Demonstration',
         sellerId: seller.id,
         status: (index === 2 ? 'paused' : 'active') as SellerListing['status'],
         inventory: [8, 4, 2][index] ?? 1,
@@ -70,11 +90,11 @@ export class MemoryPlatformStore implements PlatformStore {
         return {
           ...base,
           ...resolveSaleFields({
-            title: product.title,
+            title: base.title,
             category: product.category,
             price: product.price,
             inventory: base.inventory,
-            description: product.description,
+            description: `Demonstration listing. ${product.description}`,
             location: product.location,
             saleMode: 'auction',
             startingBid: Math.round(product.price * 0.6),
@@ -88,11 +108,11 @@ export class MemoryPlatformStore implements PlatformStore {
         return {
           ...base,
           ...resolveSaleFields({
-            title: product.title,
+            title: base.title,
             category: product.category,
             price: product.price,
             inventory: base.inventory,
-            description: product.description,
+            description: `Demonstration listing. ${product.description}`,
             location: product.location,
             saleMode: 'haggle',
             haggleEnabled: true,
@@ -103,11 +123,11 @@ export class MemoryPlatformStore implements PlatformStore {
       return {
         ...base,
         ...resolveSaleFields({
-          title: product.title,
+          title: base.title,
           category: product.category,
           price: product.price,
           inventory: base.inventory,
-          description: product.description,
+          description: `Demonstration listing. ${product.description}`,
           location: product.location,
         }),
       };
@@ -141,11 +161,9 @@ export class MemoryPlatformStore implements PlatformStore {
     );
   }
 
-  async signup(name: string, email: string, password: string, role: UserRole): Promise<AuthUser> {
+  async signup(name: string, email: string, password: string): Promise<AuthUser> {
     await this.ensureSeeded();
-    if (password.length < 8) {
-      throw new Error('Password must be at least 8 characters');
-    }
+    assertPasswordPolicy(password);
     if (this.getUserByEmail(email)) {
       throw new Error('An account with this email already exists');
     }
@@ -153,45 +171,35 @@ export class MemoryPlatformStore implements PlatformStore {
     const user = this.createStoredUser({
       id: createId('user'),
       name: name.trim(),
-      email: email.trim(),
-      role,
+      email: email.trim().toLowerCase(),
+      role: 'buyer',
       verified: false,
       passwordHash: await bcrypt.hash(password, 10),
-      passwordPlaintext: password,
+      mustChangePassword: false,
+      mfaEnabled: false,
     });
 
     return this.toAuthUser(user);
   }
 
-  async login(email: string, password: string, role: UserRole = 'buyer'): Promise<AuthUser> {
+  async login(email: string, password: string): Promise<AuthUser> {
     await this.ensureSeeded();
-    if (password.length < 6) {
-      throw new Error('Password must be at least 6 characters');
+    const user = this.getUserByEmail(email);
+    if (!user || !user.passwordHash) {
+      throw new Error('Invalid email or password');
     }
-
-    let user = this.getUserByEmail(email);
-    if (!user) {
-      user = this.createStoredUser({
-        id: createId('user'),
-        name: inferRoleFromEmail(email, role) === 'seller' ? 'Seller Account' : 'Buyer Account',
-        email: email.trim(),
-        role: inferRoleFromEmail(email, role),
-        verified: true,
-        passwordHash: await bcrypt.hash(password, 10),
-        passwordPlaintext: password,
-      });
-    } else {
-      const valid = await bcrypt.compare(password, user.passwordHash);
-      if (!valid) {
-        throw new Error('Invalid email or password');
-      }
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      throw new Error('Invalid email or password');
     }
-
     return this.toAuthUser(user);
   }
 
-  async oauthLogin(provider: 'google' | 'github', role: UserRole): Promise<AuthUser> {
+  async oauthLogin(provider: 'google' | 'github'): Promise<AuthUser> {
     await this.ensureSeeded();
+    if (!env.allowSimulatedOauth) {
+      throw new Error('Simulated OAuth is disabled');
+    }
     const email = `${provider}.user@gridstore.local`;
     let user = this.getUserByEmail(email);
     if (!user) {
@@ -199,12 +207,97 @@ export class MemoryPlatformStore implements PlatformStore {
         id: createId(provider),
         name: `${provider === 'google' ? 'Google' : 'GitHub'} User`,
         email,
-        role,
+        role: 'buyer',
         verified: true,
         passwordHash: '',
+        mustChangePassword: false,
+        mfaEnabled: false,
       });
     }
     return this.toAuthUser(user);
+  }
+
+  async verifyPassword(userId: string, password: string) {
+    const user = this.users.get(userId);
+    if (!user?.passwordHash) return false;
+    return bcrypt.compare(password, user.passwordHash);
+  }
+
+  async enableMfa(userId: string, secret: string) {
+    const user = this.users.get(userId);
+    if (!user) throw new Error('User not found');
+    user.mfaSecret = secret;
+    user.mfaEnabled = false;
+    return this.toPublicUser(user);
+  }
+
+  async confirmMfa(userId: string, token: string) {
+    const user = this.users.get(userId);
+    if (!user?.mfaSecret) return false;
+    const ok = verifyTotp(user.mfaSecret, token);
+    if (ok) user.mfaEnabled = true;
+    return ok;
+  }
+
+  isMfaSatisfied(user: StoredUser, token?: string) {
+    if (user.role !== 'admin' && user.role !== 'moderator') return true;
+    if (!env.isProduction && process.env.REQUIRE_MFA !== 'true') {
+      return true;
+    }
+    if (!user.mfaEnabled || !user.mfaSecret) return false;
+    if (!token) return false;
+    return verifyTotp(user.mfaSecret, token);
+  }
+
+  async createSellerApplication(userId: string, input: SellerApplicationInput) {
+    await this.ensureSeeded();
+    const user = this.users.get(userId);
+    if (!user) throw new Error('User not found');
+    if (user.role === 'seller' || user.role === 'admin') {
+      throw new Error('Account already has seller privileges');
+    }
+    if (this.sellerApplications.has(userId)) {
+      throw new Error('Seller application already submitted');
+    }
+    const application: SellerApplication = {
+      id: createId('sapp'),
+      userId,
+      businessName: input.businessName,
+      category: input.category,
+      location: input.location,
+      description: input.description,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+    this.sellerApplications.set(userId, application);
+    return application;
+  }
+
+  async getSellerApplication(userId: string) {
+    return this.sellerApplications.get(userId);
+  }
+
+  async listSellerApplications() {
+    return Array.from(this.sellerApplications.values());
+  }
+
+  async reviewSellerApplication(
+    applicationId: string,
+    reviewerId: string,
+    decision: 'approved' | 'rejected'
+  ) {
+    const application = Array.from(this.sellerApplications.values()).find(
+      (item) => item.id === applicationId
+    );
+    if (!application) throw new Error('Application not found');
+    application.status = decision;
+    application.reviewedAt = new Date().toISOString();
+    application.reviewerId = reviewerId;
+    if (decision === 'approved') {
+      const user = this.users.get(application.userId);
+      if (user) user.role = 'seller';
+    }
+    return application;
   }
 
   async updateProfile(userId: string, input: { name: string; email: string }): Promise<AppUser> {
@@ -379,23 +472,23 @@ export class MemoryPlatformStore implements PlatformStore {
   listAllUsersAdmin() {
     return Array.from(this.users.values()).map((user) => ({
       ...this.toPublicUser(user),
-      password: user.passwordPlaintext ?? null,
+      mustChangePassword: Boolean(user.mustChangePassword),
+      mfaEnabled: Boolean(user.mfaEnabled),
     }));
   }
 
   async adminResetUserPassword(userId: string, password: string) {
-    if (password.length < 6) {
-      throw new Error('Password must be at least 6 characters');
-    }
+    assertPasswordPolicy(password);
     const user = this.users.get(userId);
     if (!user) {
       throw new Error('User not found');
     }
     user.passwordHash = await bcrypt.hash(password, 10);
-    user.passwordPlaintext = password;
+    user.mustChangePassword = true;
     return {
       ...this.toPublicUser(user),
-      password: user.passwordPlaintext,
+      mustChangePassword: true,
+      mfaEnabled: Boolean(user.mfaEnabled),
     };
   }
 

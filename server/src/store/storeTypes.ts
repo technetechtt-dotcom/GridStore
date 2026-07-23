@@ -4,6 +4,7 @@ import type {
   AuthUser,
   Order,
   OrderLine,
+  SellerApplication,
   SellerListing,
   StoredUser,
   UserRole,
@@ -30,15 +31,26 @@ export interface CreateOrderInput {
   lines: OrderLine[];
 }
 
+export interface SellerApplicationInput {
+  businessName: string;
+  category: string;
+  location: string;
+  description: string;
+}
+
 export interface PlatformStore {
   ensureSeeded(): Promise<void>;
   toPublicUser(user: StoredUser): AppUser;
   getUserById(id: string): StoredUser | undefined;
   getUserByEmail(email: string): StoredUser | undefined;
-  signup(name: string, email: string, password: string, role: UserRole): Promise<AuthUser>;
-  login(email: string, password: string, role?: UserRole): Promise<AuthUser>;
-  oauthLogin(provider: 'google' | 'github', role: UserRole): Promise<AuthUser>;
+  signup(name: string, email: string, password: string): Promise<AuthUser>;
+  login(email: string, password: string): Promise<AuthUser>;
+  oauthLogin(provider: 'google' | 'github'): Promise<AuthUser>;
   updateProfile(userId: string, input: { name: string; email: string }): Promise<AppUser>;
+  verifyPassword(userId: string, password: string): Promise<boolean>;
+  enableMfa(userId: string, secret: string): Promise<AppUser>;
+  confirmMfa(userId: string, token: string): Promise<boolean>;
+  isMfaSatisfied(user: StoredUser, token?: string): boolean;
   listOrders(userId: string): Order[];
   getOrder(userId: string, orderId: string): Order | undefined;
   updateOrderStatus(
@@ -84,4 +96,12 @@ export interface PlatformStore {
     patch: Partial<Pick<SellerListing, 'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode'>>
   ): Promise<SellerListing>;
   listAuctionListings(): SellerListing[];
+  createSellerApplication(userId: string, input: SellerApplicationInput): Promise<SellerApplication>;
+  getSellerApplication(userId: string): Promise<SellerApplication | undefined>;
+  listSellerApplications(): Promise<SellerApplication[]>;
+  reviewSellerApplication(
+    applicationId: string,
+    reviewerId: string,
+    decision: 'approved' | 'rejected'
+  ): Promise<SellerApplication>;
 }

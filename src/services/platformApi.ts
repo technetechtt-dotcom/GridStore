@@ -134,12 +134,12 @@ export async function platformFetch<T>(
   }
 }
 
-export async function apiLogin(email: string, password: string, role: UserRole = 'buyer') {
+export async function apiLogin(email: string, password: string, _role?: UserRole) {
   const payload = await platformFetch<{ user?: AppUser & { sessionToken?: string } }>(
     '/auth/login',
     {
       method: 'POST',
-      body: JSON.stringify({ email, password, role }),
+      body: JSON.stringify({ email, password }),
       auth: false,
     }
   );
@@ -154,13 +154,13 @@ export async function apiSignup(
   name: string,
   email: string,
   password: string,
-  role: UserRole = 'buyer'
+  _role?: UserRole
 ) {
   const payload = await platformFetch<{ user: AppUser & { sessionToken: string } }>(
     '/auth/signup',
     {
       method: 'POST',
-      body: JSON.stringify({ name, email, password, role }),
+      body: JSON.stringify({ name, email, password }),
       auth: false,
     }
   );
@@ -168,12 +168,12 @@ export async function apiSignup(
   return payload.user;
 }
 
-export async function apiOAuthLogin(provider: 'google' | 'github', role: UserRole = 'buyer') {
+export async function apiOAuthLogin(provider: 'google' | 'github', _role?: UserRole) {
   const payload = await platformFetch<{ user: AppUser & { sessionToken: string } }>(
     '/auth/oauth',
     {
       method: 'POST',
-      body: JSON.stringify({ provider, role }),
+      body: JSON.stringify({ provider }),
       auth: false,
     }
   );

@@ -14,7 +14,9 @@ export function AdminLogin() {
   const from = (location.state as { from?: string } | null)?.from;
   const { login } = useApp();
   const [email, setEmail] = React.useState('admin@gridstore.local');
-  const [password, setPassword] = React.useState('demo1234');
+  const [password, setPassword] = React.useState(
+    import.meta.env.PROD ? '' : 'DemoSeed-ChangeMe1'
+  );
   const [loading, setLoading] = React.useState(false);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -85,10 +87,12 @@ export function AdminLogin() {
               {loading ? 'Signing in...' : 'Sign in to dashboard'}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            Demo: <span className="font-medium">admin@gridstore.local</span> /{' '}
-            <span className="font-medium">demo1234</span>
-          </p>
+          {!import.meta.env.PROD ? (
+            <p className="mt-4 text-center text-sm text-muted-foreground">
+              Dev demo: <span className="font-medium">admin@gridstore.local</span> /{' '}
+              <span className="font-medium">DemoSeed-ChangeMe1</span>
+            </p>
+          ) : null}
           <p className="mt-3 text-center text-sm">
             <Link to="/" className="text-primary hover:underline">
               Back to dashboard home

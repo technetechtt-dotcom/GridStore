@@ -1,24 +1,34 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
+import { env } from '../config/env.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import {
+  assertPasswordPolicy,
+  generateMfaSecret,
+  recordSecurityEvent,
+} from '../lib/security.js';
 import { platformStore } from '../store/index.js';
 
 export const authRouter = Router();
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts. Try again later.' },
+});
+
 const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
-  role: z
-    .enum(['buyer', 'seller', 'moderator', 'admin'])
-    .optional()
-    .catch(undefined),
+  password: z.string().min(1),
 });
 
 const signupSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
-  password: z.string().min(8),
-  role: z.enum(['buyer', 'seller', 'moderator', 'admin']).optional(),
+  password: z.string().min(10),
 });
 
 const profileSchema = z.object({
@@ -28,7 +38,6 @@ const profileSchema = z.object({
 
 const oauthSchema = z.object({
   provider: z.enum(['google', 'github']),
-  role: z.enum(['buyer', 'seller', 'moderator', 'admin']).optional(),
 });
 
 const resetSchema = z.object({
@@ -37,11 +46,10 @@ const resetSchema = z.object({
 
 function handleAuthError(res: import('express').Response, error: unknown) {
   const message = error instanceof Error ? error.message : 'Authentication failed';
-  const status = message.includes('already exists') || message.includes('Invalid') ? 400 : 400;
-  res.status(status).json({ error: message });
+  res.status(400).json({ error: message });
 }
 
-authRouter.post('/login', async (req, res) => {
+authRouter.post('/login', authLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid login payload', details: parsed.error.flatten() });
@@ -49,18 +57,24 @@ authRouter.post('/login', async (req, res) => {
   }
 
   try {
-    const user = await platformStore.login(
-      parsed.data.email,
-      parsed.data.password,
-      parsed.data.role ?? 'buyer'
-    );
+    const user = await platformStore.login(parsed.data.email, parsed.data.password);
+    recordSecurityEvent('auth.login.success', {
+      actorId: user.id,
+      ip: req.ip,
+      requestId: req.requestId,
+    });
     res.json({ user });
   } catch (error) {
+    recordSecurityEvent('auth.login.failure', {
+      ip: req.ip,
+      requestId: req.requestId,
+      detail: { email: parsed.data.email },
+    });
     handleAuthError(res, error);
   }
 });
 
-authRouter.post('/signup', async (req, res) => {
+authRouter.post('/signup', authLimiter, async (req, res) => {
   const parsed = signupSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid signup payload', details: parsed.error.flatten() });
@@ -68,19 +82,30 @@ authRouter.post('/signup', async (req, res) => {
   }
 
   try {
+    assertPasswordPolicy(parsed.data.password);
     const user = await platformStore.signup(
       parsed.data.name,
       parsed.data.email,
-      parsed.data.password,
-      parsed.data.role ?? 'buyer'
+      parsed.data.password
     );
+    recordSecurityEvent('auth.signup.success', {
+      actorId: user.id,
+      ip: req.ip,
+      requestId: req.requestId,
+    });
     res.status(201).json({ user });
   } catch (error) {
     handleAuthError(res, error);
   }
 });
 
-authRouter.post('/oauth', async (req, res) => {
+authRouter.post('/oauth', authLimiter, async (req, res) => {
+  if (!env.allowSimulatedOauth) {
+    recordSecurityEvent('auth.oauth.blocked', { ip: req.ip, requestId: req.requestId });
+    res.status(403).json({ error: 'Simulated OAuth is disabled in this environment' });
+    return;
+  }
+
   const parsed = oauthSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid OAuth payload', details: parsed.error.flatten() });
@@ -88,27 +113,41 @@ authRouter.post('/oauth', async (req, res) => {
   }
 
   try {
-    const user = await platformStore.oauthLogin(parsed.data.provider, parsed.data.role ?? 'buyer');
+    const user = await platformStore.oauthLogin(parsed.data.provider);
     res.json({ user });
   } catch (error) {
     handleAuthError(res, error);
   }
 });
 
-authRouter.post('/password-reset', (req, res) => {
+authRouter.post('/password-reset', authLimiter, (req, res) => {
   const parsed = resetSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid email', details: parsed.error.flatten() });
     return;
   }
 
+  recordSecurityEvent('auth.password_reset.requested', {
+    ip: req.ip,
+    requestId: req.requestId,
+    detail: { email: parsed.data.email },
+  });
+
   res.json({
-    message: `Password reset link prepared for ${parsed.data.email}. Connect your mail provider to deliver it.`,
+    message:
+      'If an account exists for that email, a password reset link will be sent when email delivery is configured.',
   });
 });
 
 authRouter.get('/me', requireAuth, (req: AuthenticatedRequest, res) => {
-  res.json({ user: { ...req.user, sessionToken: extractSessionToken(req) } });
+  const stored = platformStore.getUserById(req.user!.id);
+  res.json({
+    user: {
+      ...req.user,
+      mustChangePassword: Boolean(stored?.mustChangePassword),
+      mfaEnabled: Boolean(stored?.mfaEnabled),
+    },
+  });
 });
 
 authRouter.patch('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
@@ -120,26 +159,50 @@ authRouter.patch('/profile', requireAuth, async (req: AuthenticatedRequest, res)
 
   try {
     const user = await platformStore.updateProfile(req.user!.id, parsed.data);
-    res.json({
-      user: {
-        ...user,
-        sessionToken: extractSessionToken(req),
-      },
-    });
+    res.json({ user });
   } catch (error) {
     handleAuthError(res, error);
   }
 });
 
-authRouter.post('/logout', requireAuth, (_req, res) => {
-  res.json({ message: 'Logged out' });
+authRouter.post('/mfa/setup', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const secret = generateMfaSecret();
+  await platformStore.enableMfa(req.user!.id, secret);
+  recordSecurityEvent('auth.mfa.setup', {
+    actorId: req.user!.id,
+    ip: req.ip,
+    requestId: req.requestId,
+  });
+  res.json({
+    secret,
+    message: 'Store this secret in an authenticator app, then confirm with a 6-digit code.',
+  });
 });
 
-function extractSessionToken(req: AuthenticatedRequest) {
-  const header = req.headers.authorization;
-  if (header?.startsWith('Bearer ')) {
-    return header.slice(7);
+authRouter.post('/mfa/confirm', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const parsed = z.object({ token: z.string().regex(/^\d{6}$/) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid MFA token' });
+    return;
   }
-  const sessionHeader = req.headers['x-session-token'];
-  return typeof sessionHeader === 'string' ? sessionHeader : undefined;
-}
+  const ok = await platformStore.confirmMfa(req.user!.id, parsed.data.token);
+  if (!ok) {
+    res.status(400).json({ error: 'Invalid MFA token' });
+    return;
+  }
+  recordSecurityEvent('auth.mfa.enabled', {
+    actorId: req.user!.id,
+    ip: req.ip,
+    requestId: req.requestId,
+  });
+  res.json({ enabled: true });
+});
+
+authRouter.post('/logout', requireAuth, (req: AuthenticatedRequest, res) => {
+  recordSecurityEvent('auth.logout', {
+    actorId: req.user?.id,
+    ip: req.ip,
+    requestId: req.requestId,
+  });
+  res.json({ message: 'Logged out' });
+});

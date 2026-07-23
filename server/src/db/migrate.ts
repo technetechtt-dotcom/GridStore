@@ -1,7 +1,6 @@
 import bcrypt from 'bcryptjs';
+import { env } from '../config/env.js';
 import { requireSql } from './client.js';
-
-const DEMO_LOCAL_PASSWORD = 'demo1234';
 
 export async function migrate() {
   const db = requireSql();
@@ -14,29 +13,48 @@ export async function migrate() {
       role TEXT NOT NULL CHECK (role IN ('buyer', 'seller', 'moderator', 'admin')),
       verified BOOLEAN NOT NULL DEFAULT false,
       password_hash TEXT NOT NULL DEFAULT '',
-      password_plaintext TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
 
   await db`
     ALTER TABLE gridstore_users
-    ADD COLUMN IF NOT EXISTS password_plaintext TEXT
+    ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false
+  `;
+  await db`
+    ALTER TABLE gridstore_users
+    ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT false
+  `;
+  await db`
+    ALTER TABLE gridstore_users
+    ADD COLUMN IF NOT EXISTS mfa_secret TEXT
   `;
 
+  // Emergency: force resets for any account that ever had plaintext credentials.
   await db`
     UPDATE gridstore_users
-    SET password_plaintext = ${DEMO_LOCAL_PASSWORD}
-    WHERE email LIKE '%@gridstore.local' AND password_plaintext IS NULL
+    SET must_change_password = true
+    WHERE EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'gridstore_users'
+        AND column_name = 'password_plaintext'
+    )
   `;
 
-  const demoPasswordHash = await bcrypt.hash(DEMO_LOCAL_PASSWORD, 10);
-  await db`
-    UPDATE gridstore_users
-    SET password_hash = ${demoPasswordHash},
-        password_plaintext = COALESCE(password_plaintext, ${DEMO_LOCAL_PASSWORD})
-    WHERE email LIKE '%@gridstore.local'
-  `;
+  await db`ALTER TABLE gridstore_users DROP COLUMN IF EXISTS password_plaintext`;
+
+  if (env.enableDemoData) {
+    // Demo passwords are never stored in plaintext. Hash only when demo mode is explicitly allowed.
+    const demoPasswordHash = await bcrypt.hash(process.env.DEMO_SEED_PASSWORD ?? 'DemoSeed-ChangeMe1', 10);
+    await db`
+      UPDATE gridstore_users
+      SET password_hash = ${demoPasswordHash},
+          must_change_password = true
+      WHERE email LIKE '%@gridstore.local'
+        AND password_hash = ''
+    `;
+  }
 
   await db`
     CREATE TABLE IF NOT EXISTS gridstore_orders (
@@ -250,4 +268,34 @@ export async function migrate() {
   `;
   await db`CREATE INDEX IF NOT EXISTS idx_gridstore_stores_owner ON gridstore_stores(owner_id)`;
   await db`CREATE INDEX IF NOT EXISTS idx_gridstore_stores_status ON gridstore_stores(status)`;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_seller_applications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES gridstore_users(id) ON DELETE CASCADE,
+      business_name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      location TEXT NOT NULL,
+      description TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      reviewed_at TIMESTAMPTZ,
+      reviewer_id TEXT REFERENCES gridstore_users(id),
+      UNIQUE (user_id)
+    )
+  `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_security_events (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      actor_id TEXT,
+      target_id TEXT,
+      ip TEXT,
+      request_id TEXT,
+      detail JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS idx_gridstore_security_events_created ON gridstore_security_events(created_at DESC)`;
 }
