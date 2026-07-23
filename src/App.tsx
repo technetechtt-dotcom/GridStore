@@ -20,6 +20,7 @@ import {
 import { StoresDirectory, StoreDetail } from './pages/StorePages';
 import { NotFound } from './pages/NotFound';
 import { Login, Signup } from './pages/Auth';
+import { EmailVerifyPage, PasswordResetPage } from './pages/AuthRecovery';
 import { Cart, Checkout, OrderHistory, Wishlist, Notifications } from './pages/UserPages';
 import { Privacy, Terms } from './pages/Legal';
 import { useScreenInit } from './useScreenInit';
@@ -139,6 +140,8 @@ export function App() {
               />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+              <Route path="/password-reset" element={<PasswordResetPage />} />
+              <Route path="/verify-email" element={<EmailVerifyPage />} />
               <Route path="/cart" element={<Cart />} />
               <Route
                 path="/checkout"

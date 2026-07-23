@@ -44,8 +44,22 @@ export interface PlatformStore {
   getUserById(id: string): StoredUser | undefined;
   getUserByEmail(email: string): StoredUser | undefined;
   signup(name: string, email: string, password: string): Promise<AuthUser>;
-  login(email: string, password: string): Promise<AuthUser>;
-  oauthLogin(provider: 'google' | 'github'): Promise<AuthUser>;
+  login(
+    email: string,
+    password: string,
+    meta?: { ip?: string; userAgent?: string }
+  ): Promise<AuthUser>;
+  oauthLogin(
+    provider: 'google' | 'github',
+    meta?: { ip?: string; userAgent?: string }
+  ): Promise<AuthUser>;
+  requestPasswordReset(email: string): Promise<void>;
+  confirmPasswordReset(token: string, password: string): Promise<AuthUser>;
+  verifyEmail(token: string): Promise<AppUser>;
+  refreshSession(sessionId: string, refreshToken: string): Promise<AuthUser>;
+  logoutSession(sessionId: string): Promise<void>;
+  logoutAllSessions(userId: string): Promise<number>;
+  markEmailVerified(userId: string): Promise<AppUser>;
   updateProfile(userId: string, input: { name: string; email: string }): Promise<AppUser>;
   verifyPassword(userId: string, password: string): Promise<boolean>;
   enableMfa(userId: string, secret: string): Promise<AppUser>;

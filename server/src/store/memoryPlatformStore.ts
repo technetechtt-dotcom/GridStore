@@ -4,8 +4,22 @@ import { seedProducts } from '../data/seed.js';
 import { DEMO_SEED_PASSWORD, demoListingBadge } from '../lib/demo.js';
 import { createId, nowLabel } from '../lib/ids.js';
 import { matchesQuery } from '../lib/search.js';
+import {
+  assertNotCompromisedPassword,
+  assertNotLocked,
+  clearLoginFailures,
+  consumeAuthToken,
+  createAuthToken,
+  createSession,
+  progressiveDelayMs,
+  recordLoginFailure,
+  revokeAllUserSessions,
+  revokeSession,
+  rotateRefreshToken,
+  sendTransactionalEmail,
+} from '../lib/authSecurity.js';
+import { accessTokenTtlSeconds, signAccessToken } from '../lib/tokens.js';
 import { assertPasswordPolicy, generateMfaSecret, verifyTotp } from '../lib/security.js';
-import { signToken } from '../lib/tokens.js';
 import type {
   AppUser,
   AuthUser,
@@ -164,6 +178,7 @@ export class MemoryPlatformStore implements PlatformStore {
   async signup(name: string, email: string, password: string): Promise<AuthUser> {
     await this.ensureSeeded();
     assertPasswordPolicy(password);
+    await assertNotCompromisedPassword(password);
     if (this.getUserByEmail(email)) {
       throw new Error('An account with this email already exists');
     }
@@ -177,25 +192,57 @@ export class MemoryPlatformStore implements PlatformStore {
       passwordHash: await bcrypt.hash(password, 10),
       mustChangePassword: false,
       mfaEnabled: false,
+      emailVerified: false,
+    });
+
+    const verify = createAuthToken(user.id, 'email_verify', 60 * 24);
+    await sendTransactionalEmail({
+      to: user.email,
+      subject: 'Verify your GridStore email',
+      body: `Use this verification token within 24 hours: ${verify.rawToken}`,
     });
 
     return this.toAuthUser(user);
   }
 
-  async login(email: string, password: string): Promise<AuthUser> {
+  async login(email: string, password: string, meta: { ip?: string; userAgent?: string } = {}): Promise<AuthUser> {
     await this.ensureSeeded();
+    assertNotLocked(email);
+    const delay = progressiveDelayMs(email);
+    if (delay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+
     const user = this.getUserByEmail(email);
     if (!user || !user.passwordHash) {
+      recordLoginFailure(email);
       throw new Error('Invalid email or password');
     }
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
+      recordLoginFailure(email);
       throw new Error('Invalid email or password');
     }
-    return this.toAuthUser(user);
+
+    clearLoginFailures(email);
+    user.lastLoginAt = new Date().toISOString();
+    user.lastLoginIp = meta.ip;
+
+    if (user.lastLoginIp && meta.ip && user.lastLoginIp !== meta.ip) {
+      await sendTransactionalEmail({
+        to: user.email,
+        subject: 'Suspicious login to GridStore',
+        body: `A new login was detected from IP ${meta.ip}. If this was not you, reset your password immediately.`,
+      });
+    }
+
+    return this.toAuthUser(user, meta);
   }
 
-  async oauthLogin(provider: 'google' | 'github'): Promise<AuthUser> {
+  async oauthLogin(
+    provider: 'google' | 'github',
+    meta: { ip?: string; userAgent?: string } = {}
+  ): Promise<AuthUser> {
     await this.ensureSeeded();
     if (!env.allowSimulatedOauth) {
       throw new Error('Simulated OAuth is disabled');
@@ -212,9 +259,79 @@ export class MemoryPlatformStore implements PlatformStore {
         passwordHash: '',
         mustChangePassword: false,
         mfaEnabled: false,
+        emailVerified: true,
       });
     }
+    return this.toAuthUser(user, meta);
+  }
+
+  async requestPasswordReset(email: string) {
+    await this.ensureSeeded();
+    const user = this.getUserByEmail(email);
+    // Always succeed to avoid account enumeration.
+    if (!user) return;
+    const token = createAuthToken(user.id, 'password_reset', 30);
+    await sendTransactionalEmail({
+      to: user.email,
+      subject: 'Reset your GridStore password',
+      body: `Use this single-use reset token within 30 minutes: ${token.rawToken}`,
+    });
+  }
+
+  async confirmPasswordReset(token: string, password: string) {
+    assertPasswordPolicy(password);
+    await assertNotCompromisedPassword(password);
+    const record = consumeAuthToken(token, 'password_reset');
+    const user = this.users.get(record.userId);
+    if (!user) throw new Error('Invalid or expired token');
+    user.passwordHash = await bcrypt.hash(password, 10);
+    user.mustChangePassword = false;
+    revokeAllUserSessions(user.id, 'password_reset');
+    await sendTransactionalEmail({
+      to: user.email,
+      subject: 'Your GridStore password was changed',
+      body: 'Your password was changed successfully. All other sessions were signed out.',
+    });
     return this.toAuthUser(user);
+  }
+
+  async verifyEmail(token: string) {
+    const record = consumeAuthToken(token, 'email_verify');
+    return this.markEmailVerified(record.userId);
+  }
+
+  async markEmailVerified(userId: string) {
+    const user = this.users.get(userId);
+    if (!user) throw new Error('User not found');
+    user.emailVerified = true;
+    user.verified = true;
+    return this.toPublicUser(user);
+  }
+
+  async refreshSession(sessionId: string, refreshToken: string) {
+    const rotated = rotateRefreshToken(sessionId, refreshToken);
+    const user = this.users.get(rotated.session.userId);
+    if (!user) throw new Error('User not found');
+    const publicUser = this.toPublicUser(user);
+    const accessToken = signAccessToken(publicUser, rotated.session.id);
+    return {
+      ...publicUser,
+      accessToken,
+      refreshToken: rotated.refreshToken,
+      expiresIn: accessTokenTtlSeconds(),
+      sessionToken: accessToken,
+      emailVerified: Boolean(user.emailVerified),
+      mustChangePassword: Boolean(user.mustChangePassword),
+      mfaEnabled: Boolean(user.mfaEnabled),
+    };
+  }
+
+  async logoutSession(sessionId: string) {
+    revokeSession(sessionId, 'logout');
+  }
+
+  async logoutAllSessions(userId: string) {
+    return revokeAllUserSessions(userId, 'logout_all');
   }
 
   async verifyPassword(userId: string, password: string) {
@@ -479,12 +596,19 @@ export class MemoryPlatformStore implements PlatformStore {
 
   async adminResetUserPassword(userId: string, password: string) {
     assertPasswordPolicy(password);
+    await assertNotCompromisedPassword(password);
     const user = this.users.get(userId);
     if (!user) {
       throw new Error('User not found');
     }
     user.passwordHash = await bcrypt.hash(password, 10);
     user.mustChangePassword = true;
+    revokeAllUserSessions(userId, 'admin_password_reset');
+    await sendTransactionalEmail({
+      to: user.email,
+      subject: 'Your GridStore password was reset',
+      body: 'An administrator reset your password. All sessions were signed out.',
+    });
     return {
       ...this.toPublicUser(user),
       mustChangePassword: true,
@@ -512,8 +636,12 @@ export class MemoryPlatformStore implements PlatformStore {
     if (!user) {
       throw new Error('User not found');
     }
+    const roleChanged = patch.role !== undefined && patch.role !== user.role;
     if (patch.role !== undefined) user.role = patch.role;
     if (patch.verified !== undefined) user.verified = patch.verified;
+    if (roleChanged) {
+      revokeAllUserSessions(userId, 'role_changed');
+    }
     return this.toPublicUser(user);
   }
 
@@ -588,11 +716,26 @@ export class MemoryPlatformStore implements PlatformStore {
     return listing;
   }
 
-  private toAuthUser(user: StoredUser): AuthUser {
+  private toAuthUser(
+    user: StoredUser,
+    meta: { ip?: string; userAgent?: string } = {}
+  ): AuthUser {
     const publicUser = this.toPublicUser(user);
+    const { session, refreshToken } = createSession({
+      userId: user.id,
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    });
+    const accessToken = signAccessToken(publicUser, session.id);
     return {
       ...publicUser,
-      sessionToken: signToken(publicUser),
+      accessToken,
+      refreshToken,
+      expiresIn: accessTokenTtlSeconds(),
+      sessionToken: accessToken,
+      emailVerified: Boolean(user.emailVerified),
+      mustChangePassword: Boolean(user.mustChangePassword),
+      mfaEnabled: Boolean(user.mfaEnabled),
     };
   }
 }

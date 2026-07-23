@@ -91,7 +91,14 @@ export interface AppUser {
 }
 
 export interface AuthUser extends AppUser {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  /** @deprecated Prefer accessToken. Kept for compatibility during migration. */
   sessionToken: string;
+  emailVerified?: boolean;
+  mustChangePassword?: boolean;
+  mfaEnabled?: boolean;
 }
 
 export interface OrderLine {
@@ -158,6 +165,11 @@ export interface StoredUser extends AppUser {
   mustChangePassword?: boolean;
   mfaEnabled?: boolean;
   mfaSecret?: string | null;
+  emailVerified?: boolean;
+  mobile?: string;
+  mobileVerified?: boolean;
+  lastLoginAt?: string;
+  lastLoginIp?: string;
 }
 
 export interface AdminUserRow extends AppUser {

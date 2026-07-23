@@ -93,7 +93,7 @@ describe('gridstore api', () => {
       .send({ email: 'seller@gridstore.local', password: 'DemoSeed-ChangeMe1' });
 
     expect(response.status).toBe(200);
-    expect(response.body.user.sessionToken).toBeTruthy();
+    expect((response.body.accessToken || response.body.sessionToken)).toBeTruthy();
     expect(response.body.user.role).toBe('seller');
   });
 
@@ -101,7 +101,7 @@ describe('gridstore api', () => {
     const login = await request(app)
       .post('/api/auth/login')
       .send({ email: 'buyer@gridstore.local', password: 'DemoSeed-ChangeMe1' });
-    const token = login.body.user.sessionToken as string;
+    const token = (login.body.accessToken || login.body.sessionToken) as string;
 
     const order = await request(app)
       .post('/api/orders')
@@ -126,7 +126,7 @@ describe('gridstore api', () => {
     const sellerLogin = await request(app)
       .post('/api/auth/login')
       .send({ email: 'seller@gridstore.local', password: 'DemoSeed-ChangeMe1' });
-    const sellerToken = sellerLogin.body.user.sessionToken as string;
+    const sellerToken = (sellerLogin.body.accessToken || sellerLogin.body.sessionToken) as string;
 
     const listing = await request(app)
       .post('/api/listings')
@@ -155,7 +155,7 @@ describe('gridstore api', () => {
     const login = await request(app)
       .post('/api/auth/login')
       .send({ email: 'buyer@gridstore.local', password: 'DemoSeed-ChangeMe1' });
-    const token = login.body.user.sessionToken as string;
+    const token = (login.body.accessToken || login.body.sessionToken) as string;
 
     const cart = await request(app)
       .put('/api/cart')
@@ -187,8 +187,8 @@ describe('gridstore api', () => {
       .post('/api/auth/login')
       .send({ email: 'seller@gridstore.local', password: 'DemoSeed-ChangeMe1' });
 
-    const buyerToken = buyerLogin.body.user.sessionToken as string;
-    const sellerToken = sellerLogin.body.user.sessionToken as string;
+    const buyerToken = (buyerLogin.body.accessToken || buyerLogin.body.sessionToken) as string;
+    const sellerToken = (sellerLogin.body.accessToken || sellerLogin.body.sessionToken) as string;
     const buyerId = buyerLogin.body.user.id as string;
     const sellerId = sellerLogin.body.user.id as string;
 
@@ -212,7 +212,7 @@ describe('gridstore api', () => {
       .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
 
     expect(login.status).toBe(200);
-    const token = login.body.user.sessionToken as string;
+    const token = (login.body.accessToken || login.body.sessionToken) as string;
 
     const stats = await request(app)
       .get('/api/admin/stats')
@@ -228,7 +228,7 @@ describe('gridstore api', () => {
     const login = await request(app)
       .post('/api/auth/login')
       .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
-    const token = login.body.user.sessionToken as string;
+    const token = (login.body.accessToken || login.body.sessionToken) as string;
 
     const users = await request(app)
       .get('/api/admin/users')
@@ -295,7 +295,7 @@ describe('gridstore api', () => {
     const login = await request(app)
       .post('/api/auth/login')
       .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
-    const token = login.body.user.sessionToken as string;
+    const token = (login.body.accessToken || login.body.sessionToken) as string;
 
     const buyer = await request(app).post('/api/auth/signup').send({
       name: 'Role Target',
@@ -330,7 +330,7 @@ describe('gridstore api', () => {
       email: `seller-app-${Date.now()}@example.com`,
       password: 'SellerPass12',
     });
-    const token = signup.body.user.sessionToken as string;
+    const token = (signup.body.accessToken || signup.body.sessionToken) as string;
     expect(signup.body.user.role).toBe('buyer');
 
     const application = await request(app)
@@ -350,7 +350,7 @@ describe('gridstore api', () => {
     const login = await request(app)
       .post('/api/auth/login')
       .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
-    const token = login.body.user.sessionToken as string;
+    const token = (login.body.accessToken || login.body.sessionToken) as string;
 
     const stores = await request(app)
       .get('/api/admin/stores')
@@ -375,7 +375,7 @@ describe('gridstore api', () => {
     const login = await request(app)
       .post('/api/auth/login')
       .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
-    const token = login.body.user.sessionToken as string;
+    const token = (login.body.accessToken || login.body.sessionToken) as string;
 
     const products = await request(app)
       .get('/api/admin/marketplace')
@@ -398,7 +398,7 @@ describe('gridstore api', () => {
     const login = await request(app)
       .post('/api/auth/login')
       .send({ email: 'admin@gridstore.local', password: 'DemoSeed-ChangeMe1' });
-    const token = login.body.user.sessionToken as string;
+    const token = (login.body.accessToken || login.body.sessionToken) as string;
 
     const auctions = await request(app)
       .get('/api/admin/auctions')
@@ -432,8 +432,8 @@ describe('gridstore api', () => {
       .post('/api/auth/login')
       .send({ email: 'seller@gridstore.local', password: 'DemoSeed-ChangeMe1' });
 
-    const buyerToken = buyerLogin.body.user.sessionToken as string;
-    const sellerToken = sellerLogin.body.user.sessionToken as string;
+    const buyerToken = (buyerLogin.body.accessToken || buyerLogin.body.sessionToken) as string;
+    const sellerToken = (sellerLogin.body.accessToken || sellerLogin.body.sessionToken) as string;
 
     const listings = await request(app).get('/api/listings?status=active');
     const haggleListing = listings.body.find(
@@ -466,7 +466,7 @@ describe('gridstore api', () => {
     const buyerLogin = await request(app)
       .post('/api/auth/login')
       .send({ email: 'buyer@gridstore.local', password: 'DemoSeed-ChangeMe1' });
-    const buyerToken = buyerLogin.body.user.sessionToken as string;
+    const buyerToken = (buyerLogin.body.accessToken || buyerLogin.body.sessionToken) as string;
 
     const auctions = await request(app).get('/api/auctions');
     expect(auctions.status).toBe(200);
@@ -489,7 +489,7 @@ describe('gridstore api', () => {
     const sellerLogin = await request(app)
       .post('/api/auth/login')
       .send({ email: 'seller@gridstore.local', password: 'DemoSeed-ChangeMe1' });
-    const token = sellerLogin.body.user.sessionToken as string;
+    const token = (sellerLogin.body.accessToken || sellerLogin.body.sessionToken) as string;
 
     const created = await request(app)
       .post('/api/stores')

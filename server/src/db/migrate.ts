@@ -298,4 +298,38 @@ export async function migrate() {
     )
   `;
   await db`CREATE INDEX IF NOT EXISTS idx_gridstore_security_events_created ON gridstore_security_events(created_at DESC)`;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES gridstore_users(id) ON DELETE CASCADE,
+      refresh_token_hash TEXT NOT NULL,
+      replaced_by TEXT,
+      revoked_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ NOT NULL,
+      user_agent TEXT,
+      ip TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS idx_gridstore_sessions_user ON gridstore_sessions(user_id)`;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_auth_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES gridstore_users(id) ON DELETE CASCADE,
+      type TEXT NOT NULL CHECK (type IN ('email_verify', 'password_reset', 'mobile_verify')),
+      token_hash TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS idx_gridstore_auth_tokens_user ON gridstore_auth_tokens(user_id, type)`;
+
+  await db`ALTER TABLE gridstore_users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false`;
+  await db`ALTER TABLE gridstore_users ADD COLUMN IF NOT EXISTS mobile TEXT`;
+  await db`ALTER TABLE gridstore_users ADD COLUMN IF NOT EXISTS mobile_verified BOOLEAN NOT NULL DEFAULT false`;
+  await db`ALTER TABLE gridstore_users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`;
+  await db`ALTER TABLE gridstore_users ADD COLUMN IF NOT EXISTS last_login_ip TEXT`;
 }

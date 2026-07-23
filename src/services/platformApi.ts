@@ -17,6 +17,7 @@ import { buildApiUrl, parseJsonResponse } from './apiUrl';
 
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? '10000');
 export const AUTH_TOKEN_KEY = 'gridstore-auth-token';
+export const AUTH_REFRESH_KEY = 'gridstore-refresh-token';
 
 type QueryParams = Record<string, string | number | boolean | undefined>;
 
@@ -28,18 +29,37 @@ function extractData<T>(payload: unknown): T {
   return payload as T;
 }
 
-export function getAuthToken() {
+function storageGet(key: string) {
   if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+  return window.sessionStorage.getItem(key) ?? window.localStorage.getItem(key);
+}
+
+function storageSet(key: string, value: string | null) {
+  if (typeof window === 'undefined') return;
+  if (value) {
+    window.sessionStorage.setItem(key, value);
+    // Migrate away from long-lived localStorage credentials.
+    window.localStorage.removeItem(key);
+  } else {
+    window.sessionStorage.removeItem(key);
+    window.localStorage.removeItem(key);
+  }
+}
+
+export function getAuthToken() {
+  return storageGet(AUTH_TOKEN_KEY);
 }
 
 export function setAuthToken(token: string | null) {
-  if (typeof window === 'undefined') return;
-  if (token) {
-    window.localStorage.setItem(AUTH_TOKEN_KEY, token);
-  } else {
-    window.localStorage.removeItem(AUTH_TOKEN_KEY);
-  }
+  storageSet(AUTH_TOKEN_KEY, token);
+}
+
+export function getRefreshToken() {
+  return storageGet(AUTH_REFRESH_KEY);
+}
+
+export function setRefreshToken(token: string | null) {
+  storageSet(AUTH_REFRESH_KEY, token);
 }
 
 export function hydrateAuthToken(user: Pick<AppUser, 'sessionToken'> | null | undefined) {
@@ -52,6 +72,7 @@ export const AUTH_SESSION_EXPIRED_EVENT = 'gridstore-auth-session-expired';
 export function notifyAuthSessionExpired() {
   if (typeof window === 'undefined') return;
   setAuthToken(null);
+  setRefreshToken(null);
   window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
 }
 
@@ -135,19 +156,25 @@ export async function platformFetch<T>(
 }
 
 export async function apiLogin(email: string, password: string, _role?: UserRole) {
-  const payload = await platformFetch<{ user?: AppUser & { sessionToken?: string } }>(
-    '/auth/login',
-    {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-      auth: false,
-    }
-  );
-  if (!payload?.user?.sessionToken) {
+  const payload = await platformFetch<{
+    user?: AppUser;
+    accessToken?: string;
+    refreshToken?: string;
+    sessionToken?: string;
+  }>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+    auth: false,
+  });
+  const token = payload.accessToken || payload.sessionToken;
+  if (!payload?.user || !token) {
     throw new Error('Invalid login response from API');
   }
-  setAuthToken(payload.user.sessionToken);
-  return payload.user as AppUser & { sessionToken: string };
+  setAuthToken(token);
+  if (payload.refreshToken) {
+    setRefreshToken(payload.refreshToken);
+  }
+  return { ...payload.user, sessionToken: token } as AppUser & { sessionToken: string };
 }
 
 export async function apiSignup(
@@ -156,29 +183,47 @@ export async function apiSignup(
   password: string,
   _role?: UserRole
 ) {
-  const payload = await platformFetch<{ user: AppUser & { sessionToken: string } }>(
-    '/auth/signup',
-    {
-      method: 'POST',
-      body: JSON.stringify({ name, email, password }),
-      auth: false,
-    }
-  );
-  setAuthToken(payload.user.sessionToken);
-  return payload.user;
+  const payload = await platformFetch<{
+    user: AppUser;
+    accessToken?: string;
+    refreshToken?: string;
+    sessionToken?: string;
+  }>('/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify({ name, email, password }),
+    auth: false,
+  });
+  const token = payload.accessToken || payload.sessionToken;
+  if (!token) {
+    throw new Error('Invalid signup response from API');
+  }
+  setAuthToken(token);
+  if (payload.refreshToken) {
+    setRefreshToken(payload.refreshToken);
+  }
+  return { ...payload.user, sessionToken: token };
 }
 
 export async function apiOAuthLogin(provider: 'google' | 'github', _role?: UserRole) {
-  const payload = await platformFetch<{ user: AppUser & { sessionToken: string } }>(
-    '/auth/oauth',
-    {
-      method: 'POST',
-      body: JSON.stringify({ provider }),
-      auth: false,
-    }
-  );
-  setAuthToken(payload.user.sessionToken);
-  return payload.user;
+  const payload = await platformFetch<{
+    user: AppUser;
+    accessToken?: string;
+    refreshToken?: string;
+    sessionToken?: string;
+  }>('/auth/oauth', {
+    method: 'POST',
+    body: JSON.stringify({ provider }),
+    auth: false,
+  });
+  const token = payload.accessToken || payload.sessionToken;
+  if (!token) {
+    throw new Error('Invalid OAuth response from API');
+  }
+  setAuthToken(token);
+  if (payload.refreshToken) {
+    setRefreshToken(payload.refreshToken);
+  }
+  return { ...payload.user, sessionToken: token };
 }
 
 export async function apiRequestPasswordReset(email: string) {
@@ -189,11 +234,40 @@ export async function apiRequestPasswordReset(email: string) {
   });
 }
 
+export async function apiConfirmPasswordReset(token: string, password: string) {
+  const payload = await platformFetch<{
+    user: AppUser;
+    accessToken?: string;
+    refreshToken?: string;
+    sessionToken?: string;
+  }>('/auth/password-reset/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+    auth: false,
+  });
+  const access = payload.accessToken || payload.sessionToken;
+  if (access) setAuthToken(access);
+  if (payload.refreshToken) setRefreshToken(payload.refreshToken);
+  return payload.user;
+}
+
+export async function apiVerifyEmail(token: string) {
+  const payload = await platformFetch<{ user: AppUser }>('/auth/verify-email', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+    auth: false,
+  });
+  return payload.user;
+}
+
+export async function apiLogoutAllDevices() {
+  return platformFetch<{ message: string; sessions: number }>('/auth/logout-all', {
+    method: 'POST',
+  });
+}
+
 export async function apiGetMe() {
-  const payload = await platformFetch<{ user: AppUser & { sessionToken?: string } }>('/auth/me');
-  if (payload.user.sessionToken) {
-    setAuthToken(payload.user.sessionToken);
-  }
+  const payload = await platformFetch<{ user: AppUser }>('/auth/me');
   return payload.user;
 }
 
