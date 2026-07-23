@@ -932,7 +932,12 @@ export class MemoryPlatformStore implements PlatformStore {
 
   async updateListingTradeFields(
     listingId: string,
-    patch: Partial<Pick<SellerListing, 'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode'>>
+    patch: Partial<
+      Pick<
+        SellerListing,
+        'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode' | 'auctionEndsAt'
+      >
+    >
   ) {
     const listing = this.listings.find((item) => item.id === listingId);
     if (!listing) throw new Error('Listing not found');
@@ -941,6 +946,7 @@ export class MemoryPlatformStore implements PlatformStore {
     if (patch.auctionStatus !== undefined) listing.auctionStatus = patch.auctionStatus;
     if (patch.haggleEnabled !== undefined) listing.haggleEnabled = patch.haggleEnabled;
     if (patch.saleMode !== undefined) listing.saleMode = patch.saleMode;
+    if (patch.auctionEndsAt !== undefined) listing.auctionEndsAt = patch.auctionEndsAt;
     return listing;
   }
 

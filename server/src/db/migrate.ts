@@ -457,4 +457,13 @@ export async function migrate() {
     )
   `;
   await db`CREATE INDEX IF NOT EXISTS idx_gridstore_ledger_entries_journal ON gridstore_ledger_entries(journal_id)`;
+
+  await db`ALTER TABLE gridstore_offers ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`;
+  await db`ALTER TABLE gridstore_offers ADD COLUMN IF NOT EXISTS inventory_reserved BOOLEAN NOT NULL DEFAULT false`;
+  await db`ALTER TABLE gridstore_bids ADD COLUMN IF NOT EXISTS idempotency_key TEXT`;
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_gridstore_bids_idempotency
+    ON gridstore_bids(bidder_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL
+  `;
 }

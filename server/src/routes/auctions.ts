@@ -9,9 +9,11 @@ export const auctionsRouter = Router();
 
 const bidSchema = z.object({
   amount: z.number().positive(),
+  idempotencyKey: z.string().min(8).max(128).optional(),
 });
 
-auctionsRouter.get('/', optionalAuth, (_req, res) => {
+auctionsRouter.get('/', optionalAuth, async (_req, res) => {
+  await tradeStore.closeExpiredAuctions();
   const auctions = platformStore.listAuctionListings().map((listing) => ({
     ...listing,
     sellerId: undefined,
@@ -21,6 +23,7 @@ auctionsRouter.get('/', optionalAuth, (_req, res) => {
 });
 
 auctionsRouter.get('/:listingId', optionalAuth, async (req, res) => {
+  await tradeStore.closeExpiredAuctions();
   const listing = platformStore.getListing(req.params.listingId);
   if (!listing || listing.saleMode !== 'auction') {
     res.status(404).json({ error: 'Auction not found' });
@@ -36,7 +39,10 @@ auctionsRouter.get('/:listingId', optionalAuth, async (req, res) => {
 });
 
 auctionsRouter.post('/:listingId/bids', requireAuth, async (req: AuthenticatedRequest, res) => {
-  const parsed = bidSchema.safeParse(req.body);
+  const parsed = bidSchema.safeParse({
+    ...req.body,
+    idempotencyKey: req.body?.idempotencyKey ?? req.header('idempotency-key') ?? undefined,
+  });
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid bid payload' });
     return;
@@ -48,10 +54,20 @@ auctionsRouter.post('/:listingId/bids', requireAuth, async (req: AuthenticatedRe
       bidderId: req.user!.id,
       bidderName: req.user!.name,
       amount: parsed.data.amount,
+      idempotencyKey: parsed.data.idempotencyKey,
     });
     res.status(201).json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to place bid';
     res.status(400).json({ error: message });
   }
+});
+
+auctionsRouter.post('/close-due', requireAuth, async (req: AuthenticatedRequest, res) => {
+  if (!['admin', 'moderator'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  await tradeStore.closeExpiredAuctions();
+  res.json({ ok: true });
 });

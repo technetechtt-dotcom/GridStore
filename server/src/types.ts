@@ -173,9 +173,11 @@ export interface HaggleOffer {
   buyerName: string;
   amount: number;
   message?: string;
-  status: 'pending' | 'accepted' | 'declined' | 'countered' | 'withdrawn';
+  status: 'pending' | 'accepted' | 'declined' | 'countered' | 'withdrawn' | 'expired';
   counterAmount?: number;
   createdAt: string;
+  expiresAt?: string;
+  inventoryReserved?: boolean;
 }
 
 export interface AuctionBid {
@@ -185,6 +187,7 @@ export interface AuctionBid {
   bidderName: string;
   amount: number;
   createdAt: string;
+  idempotencyKey?: string;
 }
 
 export interface StoredUser extends AppUser {

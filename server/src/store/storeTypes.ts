@@ -116,7 +116,12 @@ export interface PlatformStore {
   ): Promise<Order & { buyerName: string; buyerEmail: string }>;
   updateListingTradeFields(
     listingId: string,
-    patch: Partial<Pick<SellerListing, 'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode'>>
+    patch: Partial<
+      Pick<
+        SellerListing,
+        'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode' | 'auctionEndsAt'
+      >
+    >
   ): Promise<SellerListing>;
   listAuctionListings(): SellerListing[];
   createSellerApplication(userId: string, input: SellerApplicationInput): Promise<SellerApplication>;

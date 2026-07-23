@@ -1460,7 +1460,12 @@ export class PostgresPlatformStore implements PlatformStore {
 
   async updateListingTradeFields(
     listingId: string,
-    patch: Partial<Pick<SellerListing, 'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode'>>
+    patch: Partial<
+      Pick<
+        SellerListing,
+        'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode' | 'auctionEndsAt'
+      >
+    >
   ) {
     const listing = this.listings.find((item) => item.id === listingId);
     if (!listing) throw new Error('Listing not found');
@@ -1469,6 +1474,7 @@ export class PostgresPlatformStore implements PlatformStore {
     if (patch.auctionStatus !== undefined) listing.auctionStatus = patch.auctionStatus;
     if (patch.haggleEnabled !== undefined) listing.haggleEnabled = patch.haggleEnabled;
     if (patch.saleMode !== undefined) listing.saleMode = patch.saleMode;
+    if (patch.auctionEndsAt !== undefined) listing.auctionEndsAt = patch.auctionEndsAt;
 
     const db = requireSql();
     await db`
@@ -1478,7 +1484,8 @@ export class PostgresPlatformStore implements PlatformStore {
         bid_count = ${listing.bidCount},
         auction_status = ${listing.auctionStatus},
         haggle_enabled = ${listing.haggleEnabled},
-        sale_mode = ${listing.saleMode}
+        sale_mode = ${listing.saleMode},
+        auction_ends_at = ${listing.auctionEndsAt ?? null}
       WHERE id = ${listingId}
     `;
     return listing;

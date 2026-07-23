@@ -1,4 +1,4 @@
-import type { AuctionBid, HaggleOffer } from '../types.js';
+import type { AuctionBid, HaggleOffer, SellerListing } from '../../types.js';
 
 export interface TradeStore {
   ensureSeeded(): Promise<void>;
@@ -24,6 +24,8 @@ export interface TradeStore {
     bidderId: string;
     bidderName: string;
     amount: number;
-  }): Promise<{ bid: AuctionBid; listing: import('../types.js').SellerListing }>;
+    idempotencyKey?: string;
+  }): Promise<{ bid: AuctionBid; listing: SellerListing }>;
   listBids(listingId: string): Promise<AuctionBid[]>;
+  closeExpiredAuctions(): Promise<void>;
 }
