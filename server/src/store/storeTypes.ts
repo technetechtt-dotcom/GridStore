@@ -3,7 +3,7 @@ import type {
   AppUser,
   AuthUser,
   Order,
-  OrderLine,
+  OrderEvent,
   SellerApplication,
   SellerListing,
   StoredUser,
@@ -28,7 +28,8 @@ export interface ListingInput {
 export interface CreateOrderInput {
   deliveryAddress: string;
   paymentMethod: string;
-  lines: OrderLine[];
+  lines: Array<{ productId: string; quantity: number }>;
+  idempotencyKey?: string;
 }
 
 export interface SellerApplicationInput {
@@ -67,13 +68,21 @@ export interface PlatformStore {
   isMfaSatisfied(user: StoredUser, token?: string): boolean;
   listOrders(userId: string): Order[];
   getOrder(userId: string, orderId: string): Order | undefined;
-  updateOrderStatus(
-    userId: string,
+  transitionOrder(
+    actor: { userId: string; role: string },
     orderId: string,
-    status: Order['status']
+    action:
+      | 'confirm_payment'
+      | 'start_processing'
+      | 'ship'
+      | 'deliver'
+      | 'cancel'
+      | 'refund',
+    meta?: { trackingNumber?: string }
   ): Promise<Order>;
   createOrder(userId: string, input: CreateOrderInput): Promise<Order>;
   refundOrder(userId: string, orderId: string): Promise<Order>;
+  listOrderEvents(orderId: string): OrderEvent[];
   listPublicListings(query?: string, status?: string): SellerListing[];
   listSellerListings(userId: string): SellerListing[];
   getListing(id: string): SellerListing | undefined;

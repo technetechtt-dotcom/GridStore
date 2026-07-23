@@ -4,7 +4,7 @@ import { seedProducts } from '../data/seed.js';
 import { requireSql } from '../db/client.js';
 import { migrate } from '../db/migrate.js';
 import { DEMO_SEED_PASSWORD, demoListingBadge } from '../lib/demo.js';
-import { createId } from '../lib/ids.js';
+import { createId, nowLabel } from '../lib/ids.js';
 import {
   assertNotCompromisedPassword,
   assertNotLocked,
@@ -20,6 +20,17 @@ import {
   sendTransactionalEmail,
 } from '../lib/authSecurity.js';
 import { resolveSaleFields } from '../lib/listingSale.js';
+import {
+  assertOrderTransition,
+  buildAuthoritativeLines,
+  centsToRands,
+  createOrderEvent,
+  reservationExpiryIso,
+  randsToCents,
+  type InventoryAdjustment,
+  type InventoryReservation,
+  type OrderTransitionAction,
+} from '../lib/orderCommerce.js';
 import { matchesQuery } from '../lib/search.js';
 import { assertPasswordPolicy, generateMfaSecret, verifyTotp } from '../lib/security.js';
 import { accessTokenTtlSeconds, signAccessToken } from '../lib/tokens.js';
@@ -27,6 +38,7 @@ import type {
   AppUser,
   AuthUser,
   Order,
+  OrderEvent,
   OrderLine,
   SellerApplication,
   SellerListing,
@@ -59,9 +71,13 @@ interface OrderRow {
   status: Order['status'];
   payment_status: Order['paymentStatus'];
   total: string | number;
+  total_cents?: string | number | null;
   delivery_address: string;
+  payment_method?: string | null;
+  tracking_number?: string | null;
   receipt_number: string;
   created_at: string;
+  idempotency_key?: string | null;
 }
 
 interface OrderLineRow {
@@ -69,8 +85,10 @@ interface OrderLineRow {
   product_id: string;
   title: string;
   seller: string;
+  seller_id?: string | null;
   quantity: number;
   unit_price: string | number;
+  unit_price_cents?: string | number | null;
 }
 
 interface ListingRow {
@@ -153,6 +171,10 @@ export class PostgresPlatformStore implements PlatformStore {
   private users = new Map<string, StoredUser>();
   private orders: Order[] = [];
   private listings: SellerListing[] = [];
+  private orderEvents: OrderEvent[] = [];
+  private reservations: InventoryReservation[] = [];
+  private adjustments: InventoryAdjustment[] = [];
+  private idempotency = new Map<string, string>();
   private ready = false;
 
   async ensureSeeded() {
@@ -168,27 +190,37 @@ export class PostgresPlatformStore implements PlatformStore {
     const linesByOrder = new Map<string, OrderLine[]>();
     lineRows.forEach((line) => {
       const existing = linesByOrder.get(line.order_id) ?? [];
+      const unitPriceCents = Number(line.unit_price_cents ?? randsToCents(Number(line.unit_price)));
       existing.push({
         productId: line.product_id,
         title: line.title,
         seller: line.seller,
+        sellerId: line.seller_id ?? undefined,
         quantity: line.quantity,
         unitPrice: Number(line.unit_price),
+        unitPriceCents,
       });
       linesByOrder.set(line.order_id, existing);
     });
 
-    this.orders = orderRows.map((row) => ({
-      id: row.id,
-      userId: row.user_id,
-      status: row.status,
-      paymentStatus: row.payment_status,
-      total: Number(row.total),
-      deliveryAddress: row.delivery_address,
-      receiptNumber: row.receipt_number,
-      createdAt: row.created_at,
-      lines: linesByOrder.get(row.id) ?? [],
-    }));
+    this.orders = orderRows.map((row) => {
+      const totalCents = Number(row.total_cents ?? randsToCents(Number(row.total)));
+      return {
+        id: row.id,
+        userId: row.user_id,
+        status: row.status,
+        paymentStatus: row.payment_status,
+        total: Number(row.total),
+        totalCents,
+        deliveryAddress: row.delivery_address,
+        paymentMethod: row.payment_method ?? undefined,
+        trackingNumber: row.tracking_number ?? undefined,
+        receiptNumber: row.receipt_number,
+        createdAt: row.created_at,
+        lines: linesByOrder.get(row.id) ?? [],
+        idempotencyKey: row.idempotency_key ?? undefined,
+      };
+    });
 
     const listingRows = (await db`SELECT * FROM gridstore_listings`) as ListingRow[];
     this.listings = listingRows.map(rowToListing);
@@ -283,8 +315,8 @@ export class PostgresPlatformStore implements PlatformStore {
         title: demoListingBadge(product.title),
         badge: 'Demonstration',
         sellerId: seller.id,
-        status: (index === 2 ? 'paused' : 'active') as SellerListing['status'],
-        inventory: [8, 4, 2][index] ?? 1,
+        status: 'active' as SellerListing['status'],
+        inventory: [8, 4, 12][index] ?? 1,
         riskScore: [9, 12, 18][index] ?? 10,
         verified: true,
       };
@@ -795,87 +827,305 @@ export class PostgresPlatformStore implements PlatformStore {
   }
 
   async updateOrderStatus(userId: string, orderId: string, status: Order['status']) {
-    const order = this.getOrder(userId, orderId);
-    if (!order) {
-      throw new Error('Order not found');
+    void userId;
+    void orderId;
+    void status;
+    throw new Error('Direct status updates are disabled; use order transitions');
+  }
+
+  listOrderEvents(orderId: string) {
+    return this.orderEvents
+      .filter((event) => event.orderId === orderId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  private expireReservations() {
+    const now = Date.now();
+    for (const reservation of this.reservations) {
+      if (reservation.status !== 'held') continue;
+      if (new Date(reservation.expiresAt).getTime() > now) continue;
+      reservation.status = 'expired';
+      const order = this.orders.find((item) => item.id === reservation.orderId);
+      if (order && order.status === 'pending_payment') {
+        const from = order.status;
+        order.status = 'cancelled';
+        void this.persistOrderStatus(order);
+        this.pushEvent(
+          createOrderEvent({
+            orderId: order.id,
+            type: 'reservation_expired',
+            fromStatus: from,
+            toStatus: 'cancelled',
+          })
+        );
+      }
     }
-    order.status = status;
+  }
+
+  private availableInventory(listingId: string) {
+    this.expireReservations();
+    const listing = this.listings.find((item) => item.id === listingId);
+    if (!listing) return 0;
+    const held = this.reservations
+      .filter((item) => item.listingId === listingId && item.status === 'held')
+      .reduce((sum, item) => sum + item.quantity, 0);
+    return listing.inventory - held;
+  }
+
+  private pushEvent(event: OrderEvent) {
+    this.orderEvents.push(event);
+    const order = this.orders.find((item) => item.id === event.orderId);
+    if (order) {
+      order.events = this.listOrderEvents(order.id);
+    }
+    void this.persistEvent(event);
+  }
+
+  private async persistEvent(event: OrderEvent) {
+    const db = requireSql();
+    await db`
+      INSERT INTO gridstore_order_events (
+        id, order_id, type, actor_id, from_status, to_status, detail, created_at
+      ) VALUES (
+        ${event.id}, ${event.orderId}, ${event.type}, ${event.actorId ?? null},
+        ${event.fromStatus ?? null}, ${event.toStatus ?? null},
+        ${event.detail ? JSON.stringify(event.detail) : null}, ${event.createdAt}
+      )
+    `;
+  }
+
+  private async persistOrderStatus(order: Order) {
+    const db = requireSql();
+    await db`
+      UPDATE gridstore_orders
+      SET status = ${order.status},
+          payment_status = ${order.paymentStatus},
+          tracking_number = ${order.trackingNumber ?? null}
+      WHERE id = ${order.id}
+    `;
+  }
+
+  private async adjustInventory(
+    listingId: string,
+    delta: number,
+    reason: string,
+    orderId?: string,
+    actorId?: string
+  ) {
+    const listing = this.listings.find((item) => item.id === listingId);
+    if (!listing) throw new Error('Listing not found for inventory adjustment');
+    const next = listing.inventory + delta;
+    if (next < 0) throw new Error('Insufficient inventory');
+    listing.inventory = next;
+    if (listing.inventory === 0 && listing.status === 'active') {
+      listing.status = 'paused';
+    }
+    const adjustment: InventoryAdjustment = {
+      id: createId('iadj'),
+      listingId,
+      delta,
+      reason,
+      orderId,
+      actorId,
+      createdAt: new Date().toISOString(),
+    };
+    this.adjustments.push(adjustment);
 
     const db = requireSql();
     await db`
-      UPDATE gridstore_orders SET status = ${status}
-      WHERE id = ${orderId} AND user_id = ${userId}
+      UPDATE gridstore_listings
+      SET inventory = ${listing.inventory}, status = ${listing.status}
+      WHERE id = ${listingId}
     `;
+    await db`
+      INSERT INTO gridstore_inventory_adjustments (
+        id, listing_id, delta, reason, order_id, actor_id, created_at
+      ) VALUES (
+        ${adjustment.id}, ${listingId}, ${delta}, ${reason},
+        ${orderId ?? null}, ${actorId ?? null}, ${adjustment.createdAt}
+      )
+    `;
+  }
+
+  async transitionOrder(
+    actor: { userId: string; role: string },
+    orderId: string,
+    action: OrderTransitionAction,
+    meta?: { trackingNumber?: string }
+  ): Promise<Order> {
+    const order = this.orders.find((item) => item.id === orderId);
+    if (!order) throw new Error('Order not found');
+
+    const next = assertOrderTransition(order, action, actor);
+    const fromStatus = order.status;
+    order.status = next.status;
+    if (next.paymentStatus) order.paymentStatus = next.paymentStatus;
+    if (action === 'ship' && meta?.trackingNumber) {
+      order.trackingNumber = meta.trackingNumber.trim();
+    }
+
+    if (action === 'confirm_payment') {
+      for (const reservation of this.reservations.filter((item) => item.orderId === orderId && item.status === 'held')) {
+        await this.adjustInventory(reservation.listingId, -reservation.quantity, 'payment_commit', orderId, actor.userId);
+        reservation.status = 'committed';
+        await this.persistReservationStatus(reservation);
+      }
+    }
+
+    if (action === 'cancel') {
+      for (const reservation of this.reservations.filter((item) => item.orderId === orderId && item.status === 'held')) {
+        reservation.status = 'released';
+        await this.persistReservationStatus(reservation);
+      }
+    }
+
+    if (action === 'refund') {
+      for (const line of order.lines) {
+        await this.adjustInventory(line.productId, line.quantity, 'refund_restock', orderId, actor.userId);
+      }
+      for (const reservation of this.reservations.filter((item) => item.orderId === orderId)) {
+        if (reservation.status === 'held') {
+          reservation.status = 'released';
+          await this.persistReservationStatus(reservation);
+        }
+      }
+    }
+
+    await this.persistOrderStatus(order);
+    this.pushEvent(
+      createOrderEvent({
+        orderId,
+        type: `transition.${action}`,
+        actorId: actor.userId,
+        fromStatus,
+        toStatus: order.status,
+        detail: meta?.trackingNumber ? { trackingNumber: meta.trackingNumber } : undefined,
+      })
+    );
+
     return order;
   }
 
+  private async persistReservationStatus(reservation: InventoryReservation) {
+    const db = requireSql();
+    await db`
+      UPDATE gridstore_inventory_reservations
+      SET status = ${reservation.status}
+      WHERE id = ${reservation.id}
+    `;
+  }
+
   async createOrder(userId: string, input: CreateOrderInput): Promise<Order> {
-    if (!input.lines.length) {
-      throw new Error('Cart is empty');
-    }
     if (!input.deliveryAddress.trim()) {
       throw new Error('Delivery address is required');
     }
 
-    const total = input.lines.reduce(
-      (sum, line) => sum + line.quantity * line.unitPrice,
-      0
+    const idemKey = input.idempotencyKey?.trim();
+    if (idemKey) {
+      const existingId = this.idempotency.get(`${userId}:${idemKey}`);
+      if (existingId) {
+        const existing = this.orders.find((order) => order.id === existingId);
+        if (existing) return existing;
+      }
+    }
+
+    const { lines, totalCents } = buildAuthoritativeLines(input.lines, (productId) =>
+      this.getListing(productId)
     );
 
+    for (const line of lines) {
+      const available = this.availableInventory(line.productId);
+      if (available < line.quantity) {
+        throw new Error(`Insufficient stock for ${line.title}`);
+      }
+    }
+
+    const pendingPayment = input.paymentMethod === 'manual_eft';
     const order: Order = {
       id: createId('ord'),
       userId,
-      status: input.paymentMethod === 'manual_eft' ? 'pending_payment' : 'paid',
-      paymentStatus: input.paymentMethod === 'manual_eft' ? 'requires_provider' : 'paid',
-      total,
+      status: pendingPayment ? 'pending_payment' : 'paid',
+      paymentStatus: pendingPayment ? 'requires_provider' : 'paid',
+      total: centsToRands(totalCents),
+      totalCents,
       deliveryAddress: input.deliveryAddress.trim(),
+      paymentMethod: input.paymentMethod,
       receiptNumber: `GS-${Date.now().toString().slice(-8)}`,
       createdAt: nowLabel(),
-      lines: input.lines,
+      lines,
+      events: [],
+      idempotencyKey: idemKey,
     };
 
     const db = requireSql();
     await db`
       INSERT INTO gridstore_orders (
-        id, user_id, status, payment_status, total, delivery_address, receipt_number, created_at
+        id, user_id, status, payment_status, total, total_cents, delivery_address,
+        payment_method, receipt_number, created_at, idempotency_key
       ) VALUES (
         ${order.id}, ${order.userId}, ${order.status}, ${order.paymentStatus},
-        ${order.total}, ${order.deliveryAddress}, ${order.receiptNumber}, ${order.createdAt}
+        ${order.total}, ${order.totalCents}, ${order.deliveryAddress},
+        ${order.paymentMethod ?? null}, ${order.receiptNumber}, ${order.createdAt},
+        ${order.idempotencyKey ?? null}
       )
     `;
 
     for (const line of order.lines) {
       await db`
         INSERT INTO gridstore_order_lines (
-          order_id, product_id, title, seller, quantity, unit_price
+          order_id, product_id, title, seller, seller_id, quantity, unit_price, unit_price_cents
         ) VALUES (
           ${order.id}, ${line.productId}, ${line.title}, ${line.seller},
-          ${line.quantity}, ${line.unitPrice}
+          ${line.sellerId ?? null}, ${line.quantity}, ${line.unitPrice}, ${line.unitPriceCents}
         )
       `;
+
+      const reservation: InventoryReservation = {
+        id: createId('ires'),
+        orderId: order.id,
+        listingId: line.productId,
+        quantity: line.quantity,
+        status: pendingPayment ? 'held' : 'committed',
+        expiresAt: reservationExpiryIso(),
+        createdAt: new Date().toISOString(),
+      };
+      this.reservations.push(reservation);
+      await db`
+        INSERT INTO gridstore_inventory_reservations (
+          id, order_id, listing_id, quantity, status, expires_at, created_at
+        ) VALUES (
+          ${reservation.id}, ${reservation.orderId}, ${reservation.listingId},
+          ${reservation.quantity}, ${reservation.status}, ${reservation.expiresAt},
+          ${reservation.createdAt}
+        )
+      `;
+
+      if (!pendingPayment) {
+        await this.adjustInventory(line.productId, -line.quantity, 'checkout_paid', order.id, userId);
+      }
     }
 
     this.orders.unshift(order);
+    if (idemKey) {
+      this.idempotency.set(`${userId}:${idemKey}`, order.id);
+    }
+
+    this.pushEvent(
+      createOrderEvent({
+        orderId: order.id,
+        type: 'order.created',
+        actorId: userId,
+        toStatus: order.status,
+        detail: { paymentMethod: input.paymentMethod, totalCents },
+      })
+    );
+
     return order;
   }
 
   async refundOrder(userId: string, orderId: string): Promise<Order> {
-    const order = this.orders.find((item) => item.id === orderId && item.userId === userId);
-    if (!order) {
-      throw new Error('Order not found');
-    }
-
-    order.status = 'refunded';
-    order.paymentStatus = 'refunded';
-
-    const db = requireSql();
-    await db`
-      UPDATE gridstore_orders
-      SET status = ${order.status}, payment_status = ${order.paymentStatus}
-      WHERE id = ${orderId} AND user_id = ${userId}
-    `;
-
-    return order;
+    const user = this.users.get(userId);
+    return this.transitionOrder({ userId, role: user?.role ?? 'buyer' }, orderId, 'refund');
   }
 
   listPublicListings(query = '', status = 'active') {
@@ -1128,15 +1378,29 @@ export class PostgresPlatformStore implements PlatformStore {
     if (!order) {
       throw new Error('Order not found');
     }
-    if (patch.status !== undefined) order.status = patch.status;
-    if (patch.paymentStatus !== undefined) order.paymentStatus = patch.paymentStatus;
 
-    const db = requireSql();
-    await db`
-      UPDATE gridstore_orders
-      SET status = ${order.status}, payment_status = ${order.paymentStatus}
-      WHERE id = ${orderId}
-    `;
+    const actionMap: Partial<Record<NonNullable<typeof patch.status>, OrderTransitionAction>> = {
+      paid: 'confirm_payment',
+      processing: 'start_processing',
+      shipped: 'ship',
+      delivered: 'deliver',
+      cancelled: 'cancel',
+      refunded: 'refund',
+    };
+
+    if (patch.status && patch.status !== order.status) {
+      const action = actionMap[patch.status];
+      if (!action) {
+        throw new Error(`Unsupported order transition to ${patch.status}`);
+      }
+      await this.transitionOrder({ userId: 'admin', role: 'admin' }, orderId, action);
+    } else if (patch.paymentStatus && patch.paymentStatus !== order.paymentStatus) {
+      if (patch.paymentStatus === 'paid' && order.status === 'pending_payment') {
+        await this.transitionOrder({ userId: 'admin', role: 'admin' }, orderId, 'confirm_payment');
+      } else {
+        throw new Error('Unsupported payment status change');
+      }
+    }
 
     const buyer = this.users.get(order.userId);
     return {

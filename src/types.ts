@@ -139,19 +139,43 @@ export interface OrderLine {
   productId: string;
   title: string;
   seller: string;
+  sellerId?: string;
   quantity: number;
   unitPrice: number;
+  unitPriceCents?: number;
+}
+
+export interface OrderEvent {
+  id: string;
+  orderId: string;
+  type: string;
+  actorId?: string;
+  fromStatus?: Order['status'];
+  toStatus?: Order['status'];
+  detail?: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface Order {
   id: string;
-  status: 'pending_payment' | 'paid' | 'processing' | 'shipped' | 'delivered' | 'refunded';
+  status:
+    | 'pending_payment'
+    | 'paid'
+    | 'processing'
+    | 'shipped'
+    | 'delivered'
+    | 'refunded'
+    | 'cancelled';
   paymentStatus: 'requires_provider' | 'authorized' | 'paid' | 'refunded';
   total: number;
+  totalCents?: number;
   deliveryAddress: string;
+  paymentMethod?: string;
+  trackingNumber?: string;
   receiptNumber: string;
   createdAt: string;
   lines: OrderLine[];
+  events?: OrderEvent[];
 }
 
 export interface SellerListing extends Product {

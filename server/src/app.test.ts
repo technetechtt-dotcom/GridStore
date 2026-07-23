@@ -103,25 +103,27 @@ describe('gridstore api', () => {
       .send({ email: 'buyer@gridstore.local', password: 'DemoSeed-ChangeMe1' });
     const token = (login.body.accessToken || login.body.sessionToken) as string;
 
+    const listings = await request(app).get('/api/listings?status=active');
+    const fixedListing = listings.body.find(
+      (item: { saleMode?: string; auctionStatus?: string }) =>
+        item.saleMode !== 'auction' && item.auctionStatus !== 'live'
+    );
+    expect(fixedListing).toBeTruthy();
+
     const order = await request(app)
       .post('/api/orders')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `test-order-${Date.now()}`)
       .send({
         deliveryAddress: '12 Long Street, Cape Town',
         paymentMethod: 'card',
-        lines: [
-          {
-            productId: 'prod-sony-a7iv',
-            title: 'Sony Alpha a7 IV',
-            seller: 'CameraWorld ZA',
-            quantity: 1,
-            unitPrice: 45999,
-          },
-        ],
+        lines: [{ productId: fixedListing.id, quantity: 1 }],
       });
 
     expect(order.status).toBe(201);
     expect(order.body.receiptNumber).toMatch(/^GS-/);
+    expect(order.body.totalCents).toBe(Math.round(Number(fixedListing.price) * 100));
+    expect(order.body.lines[0].unitPrice).toBe(Number(fixedListing.price));
 
     const sellerLogin = await request(app)
       .post('/api/auth/login')

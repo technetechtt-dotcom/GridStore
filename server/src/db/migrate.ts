@@ -332,4 +332,67 @@ export async function migrate() {
   await db`ALTER TABLE gridstore_users ADD COLUMN IF NOT EXISTS mobile_verified BOOLEAN NOT NULL DEFAULT false`;
   await db`ALTER TABLE gridstore_users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`;
   await db`ALTER TABLE gridstore_users ADD COLUMN IF NOT EXISTS last_login_ip TEXT`;
+
+  // Phase 3 — checkout / inventory / order events
+  await db`ALTER TABLE gridstore_orders ADD COLUMN IF NOT EXISTS total_cents BIGINT`;
+  await db`ALTER TABLE gridstore_orders ADD COLUMN IF NOT EXISTS payment_method TEXT`;
+  await db`ALTER TABLE gridstore_orders ADD COLUMN IF NOT EXISTS tracking_number TEXT`;
+  await db`ALTER TABLE gridstore_orders ADD COLUMN IF NOT EXISTS idempotency_key TEXT`;
+  await db`
+    UPDATE gridstore_orders
+    SET total_cents = ROUND(total::numeric * 100)
+    WHERE total_cents IS NULL
+  `;
+  await db`ALTER TABLE gridstore_order_lines ADD COLUMN IF NOT EXISTS unit_price_cents BIGINT`;
+  await db`ALTER TABLE gridstore_order_lines ADD COLUMN IF NOT EXISTS seller_id TEXT`;
+  await db`
+    UPDATE gridstore_order_lines
+    SET unit_price_cents = ROUND(unit_price::numeric * 100)
+    WHERE unit_price_cents IS NULL
+  `;
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_gridstore_orders_idempotency
+    ON gridstore_orders(user_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL
+  `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_order_events (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL REFERENCES gridstore_orders(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      actor_id TEXT,
+      from_status TEXT,
+      to_status TEXT,
+      detail JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS idx_gridstore_order_events_order ON gridstore_order_events(order_id, created_at)`;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_inventory_reservations (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL REFERENCES gridstore_orders(id) ON DELETE CASCADE,
+      listing_id TEXT NOT NULL REFERENCES gridstore_listings(id) ON DELETE CASCADE,
+      quantity INT NOT NULL CHECK (quantity > 0),
+      status TEXT NOT NULL CHECK (status IN ('held', 'committed', 'released', 'expired')),
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS idx_gridstore_reservations_listing ON gridstore_inventory_reservations(listing_id, status)`;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_inventory_adjustments (
+      id TEXT PRIMARY KEY,
+      listing_id TEXT NOT NULL REFERENCES gridstore_listings(id) ON DELETE CASCADE,
+      delta INT NOT NULL,
+      reason TEXT NOT NULL,
+      order_id TEXT,
+      actor_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS idx_gridstore_inventory_adj_listing ON gridstore_inventory_adjustments(listing_id, created_at DESC)`;
 }

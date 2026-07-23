@@ -717,11 +717,12 @@ export function AppProvider({
 
     const lines = cartLines.map((item) => ({
       productId: item.product.id,
-      title: item.product.title,
-      seller: item.product.seller,
       quantity: item.quantity,
-      unitPrice: item.product.price,
     }));
+    const idempotencyKey =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `checkout-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     if (isPlatformApiAvailable() && user) {
       try {
@@ -729,26 +730,41 @@ export function AppProvider({
           deliveryAddress,
           paymentMethod,
           lines,
+          idempotencyKey,
         });
         const nextOrders = [nextOrder, ...orders];
         setOrders(nextOrders);
         setCart({});
         persist({ orders: nextOrders, cart: {} });
+        if (isPlatformApiAvailable()) {
+          void apiSaveCart({}).catch(() => undefined);
+        }
         return nextOrder;
       } catch {
         // Fall back to local order creation.
       }
     }
 
+    const pricedLines = cartLines.map((item) => ({
+      productId: item.product.id,
+      title: item.product.title,
+      seller: item.product.seller,
+      quantity: item.quantity,
+      unitPrice: item.product.price,
+      unitPriceCents: Math.round(item.product.price * 100),
+    }));
+
     const nextOrder: Order = {
       id: `ord-${Date.now()}`,
       status: paymentMethod === 'manual_eft' ? 'pending_payment' : 'paid',
       paymentStatus: paymentMethod === 'manual_eft' ? 'requires_provider' : 'paid',
       total: cartTotal,
+      totalCents: Math.round(cartTotal * 100),
       deliveryAddress,
+      paymentMethod,
       receiptNumber: `GS-${Date.now().toString().slice(-8)}`,
       createdAt: nowLabel(),
-      lines,
+      lines: pricedLines,
     };
     const nextOrders = [nextOrder, ...orders];
     setOrders(nextOrders);

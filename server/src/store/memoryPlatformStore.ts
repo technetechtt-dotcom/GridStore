@@ -20,10 +20,21 @@ import {
 } from '../lib/authSecurity.js';
 import { accessTokenTtlSeconds, signAccessToken } from '../lib/tokens.js';
 import { assertPasswordPolicy, generateMfaSecret, verifyTotp } from '../lib/security.js';
+import {
+  assertOrderTransition,
+  buildAuthoritativeLines,
+  centsToRands,
+  createOrderEvent,
+  reservationExpiryIso,
+  type InventoryAdjustment,
+  type InventoryReservation,
+  type OrderTransitionAction,
+} from '../lib/orderCommerce.js';
 import type {
   AppUser,
   AuthUser,
   Order,
+  OrderEvent,
   SellerApplication,
   SellerListing,
   StoredUser,
@@ -42,6 +53,10 @@ export class MemoryPlatformStore implements PlatformStore {
   private orders: Order[] = [];
   private listings: SellerListing[] = [];
   private sellerApplications = new Map<string, SellerApplication>();
+  private orderEvents: OrderEvent[] = [];
+  private reservations: InventoryReservation[] = [];
+  private adjustments: InventoryAdjustment[] = [];
+  private idempotency = new Map<string, string>();
   private seeded = false;
 
   async ensureSeeded() {
@@ -94,8 +109,8 @@ export class MemoryPlatformStore implements PlatformStore {
         title: demoListingBadge(product.title),
         badge: 'Demonstration',
         sellerId: seller.id,
-        status: (index === 2 ? 'paused' : 'active') as SellerListing['status'],
-        inventory: [8, 4, 2][index] ?? 1,
+        status: 'active' as SellerListing['status'],
+        inventory: [8, 4, 12][index] ?? 1,
         riskScore: [9, 12, 18][index] ?? 10,
         verified: true,
       };
@@ -446,51 +461,228 @@ export class MemoryPlatformStore implements PlatformStore {
   }
 
   async updateOrderStatus(userId: string, orderId: string, status: Order['status']) {
-    const order = this.getOrder(userId, orderId);
-    if (!order) {
+    void status;
+    throw new Error('Direct status updates are disabled; use order transitions');
+  }
+
+  listOrderEvents(orderId: string) {
+    return this.orderEvents
+      .filter((event) => event.orderId === orderId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  private expireReservations() {
+    const now = Date.now();
+    for (const reservation of this.reservations) {
+      if (reservation.status !== 'held') continue;
+      if (new Date(reservation.expiresAt).getTime() > now) continue;
+      reservation.status = 'expired';
+      const order = this.orders.find((item) => item.id === reservation.orderId);
+      if (order && order.status === 'pending_payment') {
+        const from = order.status;
+        order.status = 'cancelled';
+        this.pushEvent(
+          createOrderEvent({
+            orderId: order.id,
+            type: 'reservation_expired',
+            fromStatus: from,
+            toStatus: 'cancelled',
+          })
+        );
+      }
+    }
+  }
+
+  private availableInventory(listingId: string) {
+    this.expireReservations();
+    const listing = this.listings.find((item) => item.id === listingId);
+    if (!listing) return 0;
+    const held = this.reservations
+      .filter((item) => item.listingId === listingId && item.status === 'held')
+      .reduce((sum, item) => sum + item.quantity, 0);
+    return listing.inventory - held;
+  }
+
+  private pushEvent(event: OrderEvent) {
+    this.orderEvents.push(event);
+    const order = this.orders.find((item) => item.id === event.orderId);
+    if (order) {
+      order.events = this.listOrderEvents(order.id);
+    }
+  }
+
+  private adjustInventory(listingId: string, delta: number, reason: string, orderId?: string, actorId?: string) {
+    const listing = this.listings.find((item) => item.id === listingId);
+    if (!listing) throw new Error('Listing not found for inventory adjustment');
+    const next = listing.inventory + delta;
+    if (next < 0) throw new Error('Insufficient inventory');
+    listing.inventory = next;
+    if (listing.inventory === 0 && listing.status === 'active') {
+      listing.status = 'paused';
+    }
+    this.adjustments.push({
+      id: createId('iadj'),
+      listingId,
+      delta,
+      reason,
+      orderId,
+      actorId,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async transitionOrder(
+    actor: { userId: string; role: string },
+    orderId: string,
+    action: OrderTransitionAction,
+    meta?: { trackingNumber?: string }
+  ): Promise<Order> {
+    const order =
+      this.orders.find((item) => item.id === orderId) ??
+      (() => {
+        throw new Error('Order not found');
+      })();
+
+    if (actor.role === 'buyer' && order.userId !== actor.userId && !['cancel', 'refund', 'deliver'].includes(action)) {
       throw new Error('Order not found');
     }
-    order.status = status;
+
+    const next = assertOrderTransition(order, action, actor);
+    const fromStatus = order.status;
+    order.status = next.status;
+    if (next.paymentStatus) order.paymentStatus = next.paymentStatus;
+    if (action === 'ship' && meta?.trackingNumber) {
+      order.trackingNumber = meta.trackingNumber.trim();
+    }
+
+    if (action === 'confirm_payment') {
+      for (const reservation of this.reservations.filter((item) => item.orderId === orderId && item.status === 'held')) {
+        this.adjustInventory(reservation.listingId, -reservation.quantity, 'payment_commit', orderId, actor.userId);
+        reservation.status = 'committed';
+      }
+    }
+
+    if (action === 'cancel') {
+      for (const reservation of this.reservations.filter((item) => item.orderId === orderId && item.status === 'held')) {
+        reservation.status = 'released';
+      }
+    }
+
+    if (action === 'refund') {
+      for (const line of order.lines) {
+        this.adjustInventory(line.productId, line.quantity, 'refund_restock', orderId, actor.userId);
+      }
+      for (const reservation of this.reservations.filter((item) => item.orderId === orderId)) {
+        if (reservation.status === 'held') reservation.status = 'released';
+      }
+    }
+
+    this.pushEvent(
+      createOrderEvent({
+        orderId,
+        type: `transition.${action}`,
+        actorId: actor.userId,
+        fromStatus,
+        toStatus: order.status,
+        detail: meta?.trackingNumber ? { trackingNumber: meta.trackingNumber } : undefined,
+      })
+    );
+
     return order;
   }
 
   async createOrder(userId: string, input: CreateOrderInput): Promise<Order> {
-    if (!input.lines.length) {
-      throw new Error('Cart is empty');
-    }
     if (!input.deliveryAddress.trim()) {
       throw new Error('Delivery address is required');
     }
 
-    const total = input.lines.reduce(
-      (sum, line) => sum + line.quantity * line.unitPrice,
-      0
+    const idemKey = input.idempotencyKey?.trim();
+    if (idemKey) {
+      const existingId = this.idempotency.get(`${userId}:${idemKey}`);
+      if (existingId) {
+        const existing = this.orders.find((order) => order.id === existingId);
+        if (existing) return existing;
+      }
+    }
+
+    const { lines, totalCents } = buildAuthoritativeLines(input.lines, (productId) =>
+      this.getListing(productId)
     );
 
+    for (const line of lines) {
+      const available = this.availableInventory(line.productId);
+      if (available < line.quantity) {
+        throw new Error(`Insufficient stock for ${line.title}`);
+      }
+    }
+
+    const pendingPayment = input.paymentMethod === 'manual_eft';
     const order: Order = {
       id: createId('ord'),
       userId,
-      status: input.paymentMethod === 'manual_eft' ? 'pending_payment' : 'paid',
-      paymentStatus: input.paymentMethod === 'manual_eft' ? 'requires_provider' : 'paid',
-      total,
+      status: pendingPayment ? 'pending_payment' : 'paid',
+      paymentStatus: pendingPayment ? 'requires_provider' : 'paid',
+      total: centsToRands(totalCents),
+      totalCents,
       deliveryAddress: input.deliveryAddress.trim(),
+      paymentMethod: input.paymentMethod,
       receiptNumber: `GS-${Date.now().toString().slice(-8)}`,
       createdAt: nowLabel(),
-      lines: input.lines,
+      lines,
+      events: [],
+      idempotencyKey: idemKey,
     };
 
+    for (const line of lines) {
+      if (pendingPayment) {
+        this.reservations.push({
+          id: createId('ires'),
+          orderId: order.id,
+          listingId: line.productId,
+          quantity: line.quantity,
+          status: 'held',
+          expiresAt: reservationExpiryIso(),
+          createdAt: new Date().toISOString(),
+        });
+      } else {
+        this.adjustInventory(line.productId, -line.quantity, 'checkout_paid', order.id, userId);
+        this.reservations.push({
+          id: createId('ires'),
+          orderId: order.id,
+          listingId: line.productId,
+          quantity: line.quantity,
+          status: 'committed',
+          expiresAt: reservationExpiryIso(),
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+
     this.orders.unshift(order);
+    if (idemKey) {
+      this.idempotency.set(`${userId}:${idemKey}`, order.id);
+    }
+
+    this.pushEvent(
+      createOrderEvent({
+        orderId: order.id,
+        type: 'order.created',
+        actorId: userId,
+        toStatus: order.status,
+        detail: { paymentMethod: input.paymentMethod, totalCents },
+      })
+    );
+
     return order;
   }
 
   async refundOrder(userId: string, orderId: string): Promise<Order> {
-    const order = this.orders.find((item) => item.id === orderId && item.userId === userId);
-    if (!order) {
-      throw new Error('Order not found');
-    }
-    order.status = 'refunded';
-    order.paymentStatus = 'refunded';
-    return order;
+    const user = this.users.get(userId);
+    return this.transitionOrder(
+      { userId, role: user?.role ?? 'buyer' },
+      orderId,
+      'refund'
+    );
   }
 
   listPublicListings(query = '', status = 'active') {
@@ -662,8 +854,30 @@ export class MemoryPlatformStore implements PlatformStore {
     if (!order) {
       throw new Error('Order not found');
     }
-    if (patch.status !== undefined) order.status = patch.status;
-    if (patch.paymentStatus !== undefined) order.paymentStatus = patch.paymentStatus;
+
+    const actionMap: Partial<Record<NonNullable<typeof patch.status>, OrderTransitionAction>> = {
+      paid: 'confirm_payment',
+      processing: 'start_processing',
+      shipped: 'ship',
+      delivered: 'deliver',
+      cancelled: 'cancel',
+      refunded: 'refund',
+    };
+
+    if (patch.status && patch.status !== order.status) {
+      const action = actionMap[patch.status];
+      if (!action) {
+        throw new Error(`Unsupported order transition to ${patch.status}`);
+      }
+      await this.transitionOrder({ userId: 'admin', role: 'admin' }, orderId, action);
+    } else if (patch.paymentStatus && patch.paymentStatus !== order.paymentStatus) {
+      if (patch.paymentStatus === 'paid' && order.status === 'pending_payment') {
+        await this.transitionOrder({ userId: 'admin', role: 'admin' }, orderId, 'confirm_payment');
+      } else {
+        throw new Error('Unsupported payment status change');
+      }
+    }
+
     const buyer = this.users.get(order.userId);
     return {
       ...order,

@@ -5,7 +5,6 @@ import type {
   MessageThread,
   NotificationItem,
   Order,
-  OrderLine,
   RentalReservation,
   SellerListing,
   StoreProfile,
@@ -300,11 +299,15 @@ export async function apiGetOrders() {
 export async function apiCreateOrder(input: {
   deliveryAddress: string;
   paymentMethod: string;
-  lines: OrderLine[];
+  lines: Array<{ productId: string; quantity: number }>;
+  idempotencyKey?: string;
 }) {
   return platformFetch<Order>('/orders', {
     method: 'POST',
     body: JSON.stringify(input),
+    headers: input.idempotencyKey
+      ? { 'Idempotency-Key': input.idempotencyKey }
+      : undefined,
   });
 }
 

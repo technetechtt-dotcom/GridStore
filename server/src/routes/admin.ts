@@ -165,7 +165,15 @@ adminRouter.patch('/orders/:id', async (req, res) => {
   const parsed = z
     .object({
       status: z
-        .enum(['pending_payment', 'paid', 'processing', 'shipped', 'delivered', 'refunded'])
+        .enum([
+          'pending_payment',
+          'paid',
+          'processing',
+          'shipped',
+          'delivered',
+          'refunded',
+          'cancelled',
+        ])
         .optional(),
       paymentStatus: z.enum(['requires_provider', 'authorized', 'paid', 'refunded']).optional(),
     })
