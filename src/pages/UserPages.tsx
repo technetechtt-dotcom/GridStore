@@ -325,9 +325,15 @@ export function OrderHistory() {
                       size="sm"
                       disabled={order.status === 'refunded'}
                       onClick={() => {
-                        void requestRefund(order.id).then(() => {
-                          toast.success('Refund request marked for review');
-                        });
+                        void requestRefund(order.id)
+                          .then(() => {
+                            toast.success('Refund request submitted for support review');
+                          })
+                          .catch((error: unknown) => {
+                            toast.error(
+                              error instanceof Error ? error.message : 'Unable to request refund'
+                            );
+                          });
                       }}
                     >
                       Request refund

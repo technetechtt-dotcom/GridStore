@@ -161,7 +161,7 @@ export async function updateAdminOrder(
 
 export async function listAdminPayments(): Promise<AdminPaymentRow[]> {
   const { adminListPayments } = await import('./paymentService.js');
-  const providerPayments = adminListPayments();
+  const providerPayments = await adminListPayments();
   if (providerPayments.length) {
     return providerPayments.map((payment) => ({
       id: payment.id,

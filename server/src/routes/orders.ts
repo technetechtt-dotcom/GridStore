@@ -25,6 +25,7 @@ const transitionSchema = z.object({
     'deliver',
     'cancel',
     'refund',
+    'request_refund',
   ]),
   trackingNumber: z.string().min(3).max(120).optional(),
 });
@@ -116,11 +117,34 @@ ordersRouter.post('/:id/cancel', async (req: AuthenticatedRequest, res) => {
 
 ordersRouter.post('/:id/refund', async (req: AuthenticatedRequest, res) => {
   try {
+    // Buyers may only request a refund. Execution is staff/seller-policy only.
+    if (req.user!.role === 'buyer' || req.user!.role === 'seller') {
+      if (req.user!.role === 'buyer') {
+        const order = await platformStore.transitionOrder(
+          { userId: req.user!.id, role: req.user!.role },
+          req.params.id,
+          'request_refund'
+        );
+        res.status(202).json({
+          ...stripUserId(order),
+          refundRequest: 'submitted',
+          message: 'Refund request submitted for review. Support staff must approve execution.',
+        });
+        return;
+      }
+    }
+
+    if (!['admin', 'moderator', 'seller'].includes(req.user!.role)) {
+      res.status(403).json({ error: 'Refund execution requires admin, support, or authorised seller workflow' });
+      return;
+    }
+
     const order = await platformStore.refundOrder(req.user!.id, req.params.id);
     res.json(stripUserId(order));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to refund order';
-    res.status(400).json({ error: message });
+    const status = /requires|not allowed|Not authorized|execution/i.test(message) ? 403 : 400;
+    res.status(status).json({ error: message });
   }
 });
 

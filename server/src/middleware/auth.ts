@@ -21,57 +21,64 @@ function extractToken(req: Request) {
   return null;
 }
 
-export function optionalAuth(req: AuthenticatedRequest, _res: Response, next: NextFunction) {
-  const token = extractToken(req);
-  if (!token) {
-    next();
-    return;
-  }
-  const payload = verifyToken(token);
-  if (!payload) {
-    next();
-    return;
-  }
-  const session = payload.sid ? getSession(payload.sid) : undefined;
-  if (payload.sid && (!session || session.revokedAt)) {
-    next();
-    return;
-  }
-  const user = platformStore.getUserById(payload.sub);
-  if (user) {
-    req.user = platformStore.toPublicUser(user);
-    req.sessionId = payload.sid;
-  }
-  next();
-}
-
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  const token = extractToken(req);
-  if (!token) {
-    res.status(401).json({ error: 'Authentication required' });
-    return;
-  }
-  const payload = verifyToken(token);
-  if (!payload) {
-    res.status(401).json({ error: 'Invalid or expired session' });
-    return;
-  }
-  if (payload.sid) {
-    const session = getSession(payload.sid);
-    if (!session || session.revokedAt) {
-      res.status(401).json({ error: 'Session revoked' });
+export async function optionalAuth(req: AuthenticatedRequest, _res: Response, next: NextFunction) {
+  try {
+    const token = extractToken(req);
+    if (!token) {
+      next();
       return;
     }
-    req.sessionId = payload.sid;
+    const payload = verifyToken(token);
+    if (!payload) {
+      next();
+      return;
+    }
+    const session = payload.sid ? await getSession(payload.sid) : undefined;
+    if (payload.sid && (!session || session.revokedAt)) {
+      next();
+      return;
+    }
+    const user = platformStore.getUserById(payload.sub);
+    if (user) {
+      req.user = platformStore.toPublicUser(user);
+      req.sessionId = payload.sid;
+    }
+    next();
+  } catch (error) {
+    next(error);
   }
-  const user = platformStore.getUserById(payload.sub);
-  if (!user) {
-    res.status(401).json({ error: 'User not found' });
-    return;
+}
+
+export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  try {
+    const token = extractToken(req);
+    if (!token) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    const payload = verifyToken(token);
+    if (!payload) {
+      res.status(401).json({ error: 'Invalid or expired session' });
+      return;
+    }
+    if (payload.sid) {
+      const session = await getSession(payload.sid);
+      if (!session || session.revokedAt) {
+        res.status(401).json({ error: 'Session revoked' });
+        return;
+      }
+      req.sessionId = payload.sid;
+    }
+    const user = platformStore.getUserById(payload.sub);
+    if (!user) {
+      res.status(401).json({ error: 'User not found' });
+      return;
+    }
+    req.user = platformStore.toPublicUser(user);
+    next();
+  } catch (error) {
+    next(error);
   }
-  // Always load role from database-backed store, never from token alone.
-  req.user = platformStore.toPublicUser(user);
-  next();
 }
 
 export function requireSeller(req: AuthenticatedRequest, res: Response, next: NextFunction) {

@@ -466,4 +466,14 @@ export async function migrate() {
     ON gridstore_bids(bidder_id, idempotency_key)
     WHERE idempotency_key IS NOT NULL
   `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_login_attempts (
+      email TEXT PRIMARY KEY,
+      failures INT NOT NULL DEFAULT 0,
+      locked_until TIMESTAMPTZ,
+      last_failure_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
 }

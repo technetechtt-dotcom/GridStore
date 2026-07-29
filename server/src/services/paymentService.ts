@@ -28,7 +28,7 @@ export async function createIntentForOrder(input: {
     throw new Error('Payment intents can only be created for pending orders');
   }
 
-  const intent = createPaymentIntent({
+  const intent = await createPaymentIntent({
     orderId: order.id,
     userId: input.userId,
     amountCents: order.totalCents,
@@ -41,7 +41,7 @@ export async function createIntentForOrder(input: {
       rawBody: event.rawBody,
       signature: event.signature,
     });
-    return getPayment(intent.id)!;
+    return (await getPayment(intent.id))!;
   }
 
   return intent;
@@ -70,7 +70,7 @@ export async function applyVerifiedWebhook(input: {
     throw new Error('Invalid webhook signature');
   }
 
-  const result = processProviderWebhook({
+  const result = await processProviderWebhook({
     ...parsed,
     rawBody: canonical,
   });
@@ -89,12 +89,12 @@ export async function applyVerifiedWebhook(input: {
       payment.orderId,
       'confirm_payment'
     );
-    postPaymentCaptureJournal({
+    await postPaymentCaptureJournal({
       orderId: payment.orderId,
       paymentId: payment.id,
       amountCents: payment.amountCents,
     });
-    validateLedgerIntegrity();
+    await validateLedgerIntegrity();
     recordSecurityEvent('payment.captured', {
       actorId: payment.userId,
       targetId: payment.id,
@@ -103,12 +103,12 @@ export async function applyVerifiedWebhook(input: {
   }
 
   if (parsed.eventType === 'payment.refunded') {
-    postRefundJournal({
+    await postRefundJournal({
       orderId: payment.orderId,
       paymentId: payment.id,
       amountCents: payment.amountCents,
     });
-    validateLedgerIntegrity();
+    await validateLedgerIntegrity();
   }
 
   return { payment };
@@ -119,29 +119,32 @@ export async function refundCapturedPayment(input: {
   userId: string;
   amountCents?: number;
 }) {
-  const payment = getPaymentByOrder(input.orderId);
+  const actor = platformStore.getUserById(input.userId);
+  const role = actor?.role ?? 'buyer';
+  if (role === 'buyer') {
+    throw new Error('Refund execution requires admin, support, or authorised seller workflow');
+  }
+
+  const payment = await getPaymentByOrder(input.orderId);
   if (!payment) {
     throw new Error('No payment found for order');
   }
   const amount = input.amountCents ?? payment.amountCents - payment.refundedCents;
-  const updated = markPaymentRefunded(payment.id, amount);
-  await platformStore.transitionOrder(
-    { userId: input.userId, role: platformStore.getUserById(input.userId)?.role ?? 'buyer' },
-    input.orderId,
-    'refund'
-  );
-  postRefundJournal({
+  const updated = await markPaymentRefunded(payment.id, amount);
+  await platformStore.transitionOrder({ userId: input.userId, role }, input.orderId, 'refund');
+  await postRefundJournal({
     orderId: input.orderId,
     paymentId: payment.id,
     amountCents: amount,
     createdBy: input.userId,
   });
-  validateLedgerIntegrity();
+  await validateLedgerIntegrity();
   return updated;
 }
 
-export function adminListPayments() {
-  return listPayments().map((payment) => {
+export async function adminListPayments() {
+  const rows = await listPayments();
+  return rows.map((payment) => {
     const order = platformStore.listAllOrders().find((item) => item.id === payment.orderId);
     return {
       id: payment.id,

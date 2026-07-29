@@ -9,6 +9,7 @@ import type {
   StoredUser,
   UserRole,
 } from '../types.js';
+import type { OrderTransitionAction } from '../lib/orderCommerce.js';
 
 export interface ListingInput {
   title: string;
@@ -71,13 +72,7 @@ export interface PlatformStore {
   transitionOrder(
     actor: { userId: string; role: string },
     orderId: string,
-    action:
-      | 'confirm_payment'
-      | 'start_processing'
-      | 'ship'
-      | 'deliver'
-      | 'cancel'
-      | 'refund',
+    action: OrderTransitionAction,
     meta?: { trackingNumber?: string }
   ): Promise<Order>;
   createOrder(userId: string, input: CreateOrderInput): Promise<Order>;

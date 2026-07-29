@@ -443,14 +443,14 @@ export class PostgresPlatformStore implements PlatformStore {
       VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash}, false, false)
     `;
 
-    const verify = createAuthToken(user.id, 'email_verify', 60 * 24);
+    const verify = await createAuthToken(user.id, 'email_verify', 60 * 24);
     await sendTransactionalEmail({
       to: user.email,
       subject: 'Verify your GridStore email',
       body: `Use this verification token within 24 hours: ${verify.rawToken}`,
     });
 
-    return this.toAuthUser(user);
+    return await this.toAuthUser(user);
   }
 
   async login(
@@ -459,24 +459,24 @@ export class PostgresPlatformStore implements PlatformStore {
     meta: { ip?: string; userAgent?: string } = {}
   ): Promise<AuthUser> {
     await this.ensureSeeded();
-    assertNotLocked(email);
-    const delay = progressiveDelayMs(email);
+    await assertNotLocked(email);
+    const delay = await progressiveDelayMs(email);
     if (delay > 0) {
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
     const user = this.getUserByEmail(email);
     if (!user || !user.passwordHash) {
-      recordLoginFailure(email);
+      await recordLoginFailure(email);
       throw new Error('Invalid email or password');
     }
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
-      recordLoginFailure(email);
+      await recordLoginFailure(email);
       throw new Error('Invalid email or password');
     }
 
-    clearLoginFailures(email);
+    await clearLoginFailures(email);
     const previousIp = user.lastLoginIp;
     user.lastLoginAt = new Date().toISOString();
     user.lastLoginIp = meta.ip;
@@ -487,7 +487,7 @@ export class PostgresPlatformStore implements PlatformStore {
         body: `A new login was detected from IP ${meta.ip}. If this was not you, reset your password immediately.`,
       });
     }
-    return this.toAuthUser(user, meta);
+    return await this.toAuthUser(user, meta);
   }
 
   async oauthLogin(
@@ -521,14 +521,14 @@ export class PostgresPlatformStore implements PlatformStore {
       `;
     }
 
-    return this.toAuthUser(user, meta);
+    return await this.toAuthUser(user, meta);
   }
 
   async requestPasswordReset(email: string) {
     await this.ensureSeeded();
     const user = this.getUserByEmail(email);
     if (!user) return;
-    const token = createAuthToken(user.id, 'password_reset', 30);
+    const token = await createAuthToken(user.id, 'password_reset', 30);
     await sendTransactionalEmail({
       to: user.email,
       subject: 'Reset your GridStore password',
@@ -539,7 +539,7 @@ export class PostgresPlatformStore implements PlatformStore {
   async confirmPasswordReset(token: string, password: string) {
     assertPasswordPolicy(password);
     await assertNotCompromisedPassword(password);
-    const record = consumeAuthToken(token, 'password_reset');
+    const record = await consumeAuthToken(token, 'password_reset');
     const user = this.users.get(record.userId);
     if (!user) throw new Error('Invalid or expired token');
     user.passwordHash = await bcrypt.hash(password, 10);
@@ -550,17 +550,17 @@ export class PostgresPlatformStore implements PlatformStore {
       SET password_hash = ${user.passwordHash}, must_change_password = false
       WHERE id = ${user.id}
     `;
-    revokeAllUserSessions(user.id, 'password_reset');
+    await revokeAllUserSessions(user.id, 'password_reset');
     await sendTransactionalEmail({
       to: user.email,
       subject: 'Your GridStore password was changed',
       body: 'Your password was changed successfully. All other sessions were signed out.',
     });
-    return this.toAuthUser(user);
+    return await this.toAuthUser(user);
   }
 
   async verifyEmail(token: string) {
-    const record = consumeAuthToken(token, 'email_verify');
+    const record = await consumeAuthToken(token, 'email_verify');
     return this.markEmailVerified(record.userId);
   }
 
@@ -575,7 +575,7 @@ export class PostgresPlatformStore implements PlatformStore {
   }
 
   async refreshSession(sessionId: string, refreshToken: string) {
-    const rotated = rotateRefreshToken(sessionId, refreshToken);
+    const rotated = await rotateRefreshToken(sessionId, refreshToken);
     const user = this.users.get(rotated.session.userId);
     if (!user) throw new Error('User not found');
     const publicUser = this.toPublicUser(user);
@@ -593,11 +593,11 @@ export class PostgresPlatformStore implements PlatformStore {
   }
 
   async logoutSession(sessionId: string) {
-    revokeSession(sessionId, 'logout');
+    await revokeSession(sessionId, 'logout');
   }
 
   async logoutAllSessions(userId: string) {
-    return revokeAllUserSessions(userId, 'logout_all');
+    return await revokeAllUserSessions(userId, 'logout_all');
   }
 
   async verifyPassword(userId: string, password: string) {
@@ -1139,7 +1139,11 @@ export class PostgresPlatformStore implements PlatformStore {
 
   async refundOrder(userId: string, orderId: string): Promise<Order> {
     const user = this.users.get(userId);
-    return this.transitionOrder({ userId, role: user?.role ?? 'buyer' }, orderId, 'refund');
+    const role = user?.role ?? 'buyer';
+    if (role === 'buyer') {
+      throw new Error('Refund execution requires admin, support, or authorised seller workflow');
+    }
+    return this.transitionOrder({ userId, role }, orderId, 'refund');
   }
 
   listPublicListings(query = '', status = 'active') {
@@ -1322,7 +1326,7 @@ export class PostgresPlatformStore implements PlatformStore {
       SET password_hash = ${user.passwordHash}, must_change_password = true
       WHERE id = ${userId}
     `;
-    revokeAllUserSessions(userId, 'admin_password_reset');
+    await revokeAllUserSessions(userId, 'admin_password_reset');
     await sendTransactionalEmail({
       to: user.email,
       subject: 'Your GridStore password was reset',
@@ -1367,7 +1371,7 @@ export class PostgresPlatformStore implements PlatformStore {
       WHERE id = ${userId}
     `;
     if (roleChanged) {
-      revokeAllUserSessions(userId, 'role_changed');
+      await revokeAllUserSessions(userId, 'role_changed');
     }
     return this.toPublicUser(user);
   }
@@ -1491,12 +1495,12 @@ export class PostgresPlatformStore implements PlatformStore {
     return listing;
   }
 
-  private toAuthUser(
+  private async toAuthUser(
     user: StoredUser,
     meta: { ip?: string; userAgent?: string } = {}
-  ): AuthUser {
+  ): Promise<AuthUser> {
     const publicUser = this.toPublicUser(user);
-    const { session, refreshToken } = createSession({
+    const { session, refreshToken } = await createSession({
       userId: user.id,
       ip: meta.ip,
       userAgent: meta.userAgent,

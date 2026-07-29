@@ -99,6 +99,7 @@ export function buildAuthoritativeLines(
 
 const BUYER_CANCEL_FROM = new Set<Order['status']>(['pending_payment']);
 const REFUND_FROM = new Set<Order['status']>(['paid', 'processing', 'shipped', 'delivered']);
+const SELLER_REFUND_FROM = new Set<Order['status']>(['paid', 'processing']);
 
 export type OrderTransitionAction =
   | 'confirm_payment'
@@ -106,7 +107,26 @@ export type OrderTransitionAction =
   | 'ship'
   | 'deliver'
   | 'cancel'
-  | 'refund';
+  | 'refund'
+  | 'request_refund';
+
+export function sellerOwnsOrderLine(order: Order, sellerId: string) {
+  return order.lines.some((line) => line.sellerId === sellerId);
+}
+
+export function sellerOwnsAllOrderLines(order: Order, sellerId: string) {
+  return order.lines.length > 0 && order.lines.every((line) => line.sellerId === sellerId);
+}
+
+function assertSellerFulfilmentAccess(order: Order, actor: { role: string; userId: string }) {
+  if (['admin', 'moderator'].includes(actor.role)) return;
+  if (actor.role !== 'seller') {
+    throw new Error('Not allowed');
+  }
+  if (!sellerOwnsOrderLine(order, actor.userId)) {
+    throw new Error('Not authorized for this order: listing ownership required');
+  }
+}
 
 export function assertOrderTransition(
   order: Order,
@@ -124,26 +144,24 @@ export function assertOrderTransition(
       return { status: 'paid', paymentStatus: 'paid' };
     }
     case 'start_processing': {
-      if (!['admin', 'moderator', 'seller'].includes(actor.role)) {
-        throw new Error('Not allowed to start processing');
-      }
+      assertSellerFulfilmentAccess(order, actor);
       if (order.status !== 'paid') {
         throw new Error('Only paid orders can move to processing');
       }
       return { status: 'processing' };
     }
     case 'ship': {
-      if (!['admin', 'moderator', 'seller'].includes(actor.role)) {
-        throw new Error('Not allowed to ship orders');
-      }
+      assertSellerFulfilmentAccess(order, actor);
       if (order.status !== 'processing' && order.status !== 'paid') {
         throw new Error('Order must be paid or processing before shipping');
       }
       return { status: 'shipped' };
     }
     case 'deliver': {
-      if (!['admin', 'moderator', 'seller'].includes(actor.role) && actor.userId !== order.userId) {
-        throw new Error('Not allowed to mark delivered');
+      if (actor.userId === order.userId) {
+        // Buyer confirmation of delivery is allowed.
+      } else {
+        assertSellerFulfilmentAccess(order, actor);
       }
       if (order.status !== 'shipped') {
         throw new Error('Only shipped orders can be marked delivered');
@@ -159,9 +177,28 @@ export function assertOrderTransition(
       }
       return { status: 'cancelled', paymentStatus: order.paymentStatus };
     }
+    case 'request_refund': {
+      if (actor.userId !== order.userId) {
+        throw new Error('Only the buyer can request a refund');
+      }
+      if (!REFUND_FROM.has(order.status)) {
+        throw new Error('Order cannot be refunded from its current status');
+      }
+      // Request only — status is unchanged until staff/seller executes refund.
+      return { status: order.status, paymentStatus: order.paymentStatus };
+    }
     case 'refund': {
-      if (actor.userId !== order.userId && !['admin', 'moderator'].includes(actor.role)) {
-        throw new Error('Not allowed to refund this order');
+      if (['admin', 'moderator', 'system'].includes(actor.role)) {
+        // Staff / payment webhook execution path.
+      } else if (actor.role === 'seller') {
+        if (!sellerOwnsAllOrderLines(order, actor.userId)) {
+          throw new Error('Sellers may only refund orders that contain only their listings');
+        }
+        if (!SELLER_REFUND_FROM.has(order.status)) {
+          throw new Error('Sellers may only refund unshipped orders they fulfil');
+        }
+      } else {
+        throw new Error('Refund execution requires admin, support, or authorised seller workflow');
       }
       if (!REFUND_FROM.has(order.status)) {
         throw new Error('Order cannot be refunded from its current status');

@@ -121,7 +121,7 @@ describe('phase 4 payments and ledger', () => {
 
     expect(order.status).toBe(201);
     expect(order.body.status).toBe('paid');
-    const payment = getPaymentByOrder(order.body.id);
+    const payment = await getPaymentByOrder(order.body.id);
     expect(payment?.status).toBe('captured');
     validateLedgerIntegrity();
     expect(accountBalanceCents('platform_fees')).toBe(Math.round(order.body.totalCents * 0.12));

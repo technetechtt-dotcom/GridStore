@@ -80,6 +80,18 @@ export function assertSecurityConfig() {
     );
   }
 
+  if (!process.env.DATABASE_URL) {
+    throw new Error('Refusing to start: DATABASE_URL is required in production.');
+  }
+
+  if (!process.env.PAYMENT_WEBHOOK_SECRET) {
+    throw new Error('Refusing to start: PAYMENT_WEBHOOK_SECRET is required in production.');
+  }
+
+  if (process.env.PAYMENT_PROVIDER === 'paystack' && !process.env.PAYSTACK_SECRET_KEY) {
+    throw new Error('Refusing to start: PAYSTACK_SECRET_KEY is required when PAYMENT_PROVIDER=paystack.');
+  }
+
   if (env.corsOrigins.length === 0) {
     throw new Error(
       'Refusing to start: CORS_ORIGIN (or PUBLIC_WEB_URL / PUBLIC_ADMIN_URL) must list exact approved domains.'

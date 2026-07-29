@@ -179,33 +179,88 @@ export class PostgresTradeStore implements TradeStore {
       if (listing.inventory < 1) throw new Error('Insufficient inventory to accept offer');
       status = 'accepted';
       inventoryReserved = true;
-      await platformStore.updateListing(listing.sellerId, listing.id, {
-        inventory: listing.inventory - 1,
-      });
-      await db`
-        UPDATE gridstore_offers
-        SET status = 'declined'
-        WHERE listing_id = ${offer.listingId}
-          AND id <> ${offerId}
-          AND status IN ('pending', 'countered')
-      `;
+
+      const txn = (db as { transaction?: (fn: (txn: typeof db) => unknown[]) => Promise<unknown[]> })
+        .transaction;
+      if (typeof txn === 'function') {
+        const results = await txn.call(db, (sqlTxn: typeof db) => [
+          sqlTxn`
+            UPDATE gridstore_listings
+            SET inventory = inventory - 1,
+                status = CASE WHEN inventory - 1 <= 0 THEN 'paused' ELSE status END
+            WHERE id = ${offer.listingId} AND inventory >= 1
+            RETURNING id, inventory, status
+          `,
+          sqlTxn`
+            UPDATE gridstore_offers
+            SET status = 'declined'
+            WHERE listing_id = ${offer.listingId}
+              AND id <> ${offerId}
+              AND status IN ('pending', 'countered')
+          `,
+          sqlTxn`
+            UPDATE gridstore_offers
+            SET status = ${status},
+                counter_amount = ${counter},
+                inventory_reserved = ${inventoryReserved},
+                expires_at = ${expiresAt}
+            WHERE id = ${offerId} AND status IN ('pending', 'countered')
+            RETURNING id
+          `,
+        ]);
+        const inventoryRows = results[0] as Array<{ id: string; inventory: number; status: string }>;
+        if (!inventoryRows?.length) {
+          throw new Error('Insufficient inventory to accept offer');
+        }
+        const acceptedRows = results[2] as Array<{ id: string }>;
+        if (!acceptedRows?.length) {
+          throw new Error('Offer is no longer actionable');
+        }
+        await platformStore.updateListingTradeFields(offer.listingId, {});
+        // Refresh in-memory listing inventory from DB result.
+        const live = platformStore.getListing(offer.listingId);
+        if (live) {
+          live.inventory = Number(inventoryRows[0]!.inventory);
+          live.status = inventoryRows[0]!.status as typeof live.status;
+        }
+      } else {
+        await platformStore.updateListing(listing.sellerId, listing.id, {
+          inventory: listing.inventory - 1,
+        });
+        await db`
+          UPDATE gridstore_offers
+          SET status = 'declined'
+          WHERE listing_id = ${offer.listingId}
+            AND id <> ${offerId}
+            AND status IN ('pending', 'countered')
+        `;
+        await db`
+          UPDATE gridstore_offers
+          SET status = ${status},
+              counter_amount = ${counter},
+              inventory_reserved = ${inventoryReserved},
+              expires_at = ${expiresAt}
+          WHERE id = ${offerId}
+        `;
+      }
     } else if (action === 'decline') {
       status = 'declined';
+      await db`
+        UPDATE gridstore_offers
+        SET status = ${status}, counter_amount = ${counter}, expires_at = ${expiresAt}
+        WHERE id = ${offerId}
+      `;
     } else {
       if (!counterAmount || counterAmount <= 0) throw new Error('Counter amount is required');
       status = 'countered';
       counter = counterAmount;
       expiresAt = offerExpiryIso();
+      await db`
+        UPDATE gridstore_offers
+        SET status = ${status}, counter_amount = ${counter}, expires_at = ${expiresAt}
+        WHERE id = ${offerId}
+      `;
     }
-
-    await db`
-      UPDATE gridstore_offers
-      SET status = ${status},
-          counter_amount = ${counter},
-          inventory_reserved = ${inventoryReserved},
-          expires_at = ${expiresAt}
-      WHERE id = ${offerId}
-    `;
 
     return {
       ...offer,
@@ -233,6 +288,22 @@ export class PostgresTradeStore implements TradeStore {
         if (!listing) throw new Error('Listing not found');
         return { bid: existing.bid, listing };
       }
+      const db = requireSql();
+      const prior = (await db`
+        SELECT * FROM gridstore_bids
+        WHERE bidder_id = ${input.bidderId} AND idempotency_key = ${input.idempotencyKey}
+        LIMIT 1
+      `) as Record<string, string | number | null>[];
+      if (prior[0]) {
+        const bid = mapBid(prior[0]);
+        const listing = platformStore.getListing(bid.listingId);
+        if (!listing) throw new Error('Listing not found');
+        this.bidIdempotency.set(`${input.bidderId}:${input.idempotencyKey}`, {
+          bid,
+          listingId: bid.listingId,
+        });
+        return { bid, listing };
+      }
     }
 
     const listing = platformStore.getListing(input.listingId);
@@ -250,28 +321,70 @@ export class PostgresTradeStore implements TradeStore {
       idempotencyKey: input.idempotencyKey,
     };
 
-    const db = requireSql();
-    await db`
-      INSERT INTO gridstore_bids (id, listing_id, bidder_id, bidder_name, amount, created_at, idempotency_key)
-      VALUES (
-        ${bid.id}, ${bid.listingId}, ${bid.bidderId}, ${bid.bidderName}, ${bid.amount},
-        ${bid.createdAt}, ${bid.idempotencyKey ?? null}
-      )
-    `;
+    const endsAt = shouldExtendAuctionForAntiSnipe(listing)
+      ? extendedAuctionEndsAt(listing)
+      : listing.auctionEndsAt ?? null;
+    const minAllowed =
+      !listing.currentBid || listing.currentBid <= 0
+        ? listing.startingBid ?? listing.price
+        : listing.currentBid + (listing.bidIncrement ?? 50);
 
-    const patch: {
-      currentBid: number;
-      bidCount: number;
-      auctionEndsAt?: string;
-    } = {
-      currentBid: input.amount,
-      bidCount: (listing.bidCount ?? 0) + 1,
-    };
-    if (shouldExtendAuctionForAntiSnipe(listing)) {
-      patch.auctionEndsAt = extendedAuctionEndsAt(listing);
+    const db = requireSql();
+    const txn = (db as { transaction?: (fn: (txn: typeof db) => unknown[]) => Promise<unknown[]> })
+      .transaction;
+
+    let updatedListing = listing;
+    if (typeof txn === 'function') {
+      const results = await txn.call(db, (sqlTxn: typeof db) => [
+        sqlTxn`
+          INSERT INTO gridstore_bids (
+            id, listing_id, bidder_id, bidder_name, amount, created_at, idempotency_key
+          ) VALUES (
+            ${bid.id}, ${bid.listingId}, ${bid.bidderId}, ${bid.bidderName}, ${bid.amount},
+            ${bid.createdAt}, ${bid.idempotencyKey ?? null}
+          )
+        `,
+        sqlTxn`
+          UPDATE gridstore_listings
+          SET current_bid = ${input.amount},
+              bid_count = COALESCE(bid_count, 0) + 1,
+              auction_ends_at = COALESCE(${endsAt}, auction_ends_at)
+          WHERE id = ${input.listingId}
+            AND sale_mode = 'auction'
+            AND auction_status = 'live'
+            AND ${input.amount} >= ${minAllowed}
+          RETURNING id, current_bid, bid_count, auction_ends_at, auction_status
+        `,
+      ]);
+      const listingRows = results[1] as Array<{
+        id: string;
+        current_bid: number;
+        bid_count: number;
+        auction_ends_at: string | null;
+      }>;
+      if (!listingRows?.length) {
+        throw new Error(`Minimum bid is R ${minAllowed.toLocaleString('en-ZA')}`);
+      }
+      updatedListing = await platformStore.updateListingTradeFields(input.listingId, {
+        currentBid: Number(listingRows[0]!.current_bid),
+        bidCount: Number(listingRows[0]!.bid_count),
+        auctionEndsAt: listingRows[0]!.auction_ends_at ?? undefined,
+      });
+    } else {
+      await db`
+        INSERT INTO gridstore_bids (id, listing_id, bidder_id, bidder_name, amount, created_at, idempotency_key)
+        VALUES (
+          ${bid.id}, ${bid.listingId}, ${bid.bidderId}, ${bid.bidderName}, ${bid.amount},
+          ${bid.createdAt}, ${bid.idempotencyKey ?? null}
+        )
+      `;
+      updatedListing = await platformStore.updateListingTradeFields(input.listingId, {
+        currentBid: input.amount,
+        bidCount: (listing.bidCount ?? 0) + 1,
+        auctionEndsAt: endsAt ?? undefined,
+      });
     }
 
-    const updated = await platformStore.updateListingTradeFields(input.listingId, patch);
     if (input.idempotencyKey) {
       this.bidIdempotency.set(`${input.bidderId}:${input.idempotencyKey}`, {
         bid,
@@ -279,7 +392,7 @@ export class PostgresTradeStore implements TradeStore {
       });
     }
 
-    return { bid, listing: updated };
+    return { bid, listing: updatedListing };
   }
 
   async listBids(listingId: string) {

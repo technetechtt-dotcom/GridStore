@@ -776,21 +776,15 @@ export function AppProvider({
   const requestRefund = async (orderId: string) => {
     if (isPlatformApiAvailable() && user) {
       try {
-        const updated = await apiRefundOrder(orderId);
-        const nextOrders = orders.map((order) => (order.id === orderId ? updated : order));
-        setOrders(nextOrders);
-        persist({ orders: nextOrders });
+        await apiRefundOrder(orderId);
+        // Buyer path only submits a request; order status stays until staff executes.
         return;
-      } catch {
-        // Fall back to local refund update.
+      } catch (error) {
+        throw error instanceof Error ? error : new Error('Unable to request refund');
       }
     }
 
-    const nextOrders = orders.map((order) =>
-      order.id === orderId ? { ...order, status: 'refunded' as const, paymentStatus: 'refunded' as const } : order
-    );
-    setOrders(nextOrders);
-    persist({ orders: nextOrders });
+    throw new Error('Refund requests require a live API connection');
   };
 
   const createSellerListing = async (input: SellerListingInput) => {

@@ -1,3 +1,4 @@
+import { hasDatabase, requireSql } from '../db/client.js';
 import { createId } from './ids.js';
 
 export type LedgerAccount =
@@ -72,13 +73,36 @@ function assertBalanced(entries: Array<{ direction: 'debit' | 'credit'; amountCe
   }
 }
 
-export function postJournal(input: {
+async function persistJournal(journal: LedgerJournal) {
+  if (!hasDatabase()) return;
+  const db = requireSql();
+  await db`
+    INSERT INTO gridstore_ledger_journals (id, type, order_id, payment_id, created_by, created_at)
+    VALUES (
+      ${journal.id}, ${journal.type}, ${journal.orderId ?? null}, ${journal.paymentId ?? null},
+      ${journal.createdBy}, ${journal.createdAt}
+    )
+  `;
+  for (const entry of journal.entries) {
+    await db`
+      INSERT INTO gridstore_ledger_entries (
+        id, journal_id, account, direction, amount_cents, currency, order_id, payment_id, memo, created_by, created_at
+      ) VALUES (
+        ${entry.id}, ${entry.journalId}, ${entry.account}, ${entry.direction}, ${entry.amountCents},
+        ${entry.currency}, ${entry.orderId ?? null}, ${entry.paymentId ?? null}, ${entry.memo},
+        ${entry.createdBy}, ${entry.createdAt}
+      )
+    `;
+  }
+}
+
+export async function postJournal(input: {
   type: string;
   createdBy: string;
   orderId?: string;
   paymentId?: string;
   lines: Array<{ account: LedgerAccount; direction: 'debit' | 'credit'; amountCents: number; memo: string }>;
-}): LedgerJournal {
+}): Promise<LedgerJournal> {
   if (!input.lines.length) throw new Error('Ledger journal requires lines');
   for (const line of input.lines) {
     if (!Number.isInteger(line.amountCents) || line.amountCents <= 0) {
@@ -113,11 +137,12 @@ export function postJournal(input: {
     entries,
   };
   journals.push(journal);
+  await persistJournal(journal);
   return journal;
 }
 
 /** Platform fee: 12% of GMV (matches existing payout helper). */
-export function postPaymentCaptureJournal(input: {
+export async function postPaymentCaptureJournal(input: {
   orderId: string;
   paymentId: string;
   amountCents: number;
@@ -138,7 +163,7 @@ export function postPaymentCaptureJournal(input: {
   });
 }
 
-export function postRefundJournal(input: {
+export async function postRefundJournal(input: {
   orderId: string;
   paymentId: string;
   amountCents: number;
@@ -159,7 +184,7 @@ export function postRefundJournal(input: {
   });
 }
 
-export function validateLedgerIntegrity() {
+export async function validateLedgerIntegrity() {
   const byJournal = new Map<string, number>();
   for (const entry of listLedgerEntries()) {
     const delta = entry.direction === 'debit' ? entry.amountCents : -entry.amountCents;
