@@ -14,7 +14,7 @@ import {
   getRentals,
   getServices,
 } from '../services/mockApi';
-import { apiGetListing, apiGetSellerPayoutSummary, isPlatformApiAvailable } from '../services/platformApi';
+import { apiGetListing, apiGetSellerPayoutSummary, apiGetPayoutBanks, apiGetPayoutProfile, apiSavePayoutProfile, isPlatformApiAvailable } from '../services/platformApi';
 import { apiGetAuctionDetail, apiGetAuctions } from '../services/tradeApi';
 import type { AuctionBid, HaggleOffer, Job, Product, Rental, SellerListing, Service } from '../types';
 
@@ -1203,6 +1203,13 @@ export function SellerDashboard() {
     pending: number;
     nextPayoutDate: string;
   } | null>(null);
+  const [banks, setBanks] = useState<Array<{ code: string; name: string }>>([]);
+  const [payoutProfileLabel, setPayoutProfileLabel] = useState<string | null>(null);
+  const [payoutForm, setPayoutForm] = useState({
+    accountName: '',
+    accountNumber: '',
+    bankCode: '',
+  });
   const [form, setForm] = useState({
     title: '',
     category: 'Electronics',
@@ -1235,6 +1242,23 @@ export function SellerDashboard() {
         });
       })
       .catch(() => setLivePayout(null));
+    void apiGetPayoutBanks().then(setBanks).catch(() => setBanks([]));
+    void apiGetPayoutProfile()
+      .then((profile) => {
+        if (!profile) {
+          setPayoutProfileLabel(null);
+          return;
+        }
+        setPayoutProfileLabel(
+          `${profile.accountName} · ${profile.accountNumber} · ${profile.verified ? 'verified' : 'pending'}`
+        );
+        setPayoutForm((prev) => ({
+          ...prev,
+          accountName: profile.accountName,
+          bankCode: profile.bankCode,
+        }));
+      })
+      .catch(() => setPayoutProfileLabel(null));
   }, [orders, sellerListings]);
 
   const displayPayout = livePayout ?? payoutSummary;
@@ -1316,6 +1340,77 @@ export function SellerDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {isPlatformApiAvailable() && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Payout bank account</CardTitle>
+            <CardDescription>
+              Save your SA bank details to receive Paystack transfers after the settlement hold.
+              {payoutProfileLabel ? ` Current: ${payoutProfileLabel}` : ''}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              className="grid gap-3 md:grid-cols-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void apiSavePayoutProfile({
+                  accountName: payoutForm.accountName,
+                  accountNumber: payoutForm.accountNumber,
+                  bankCode: payoutForm.bankCode,
+                  bankName: banks.find((bank) => bank.code === payoutForm.bankCode)?.name,
+                })
+                  .then((profile) => {
+                    setPayoutProfileLabel(
+                      `${profile.accountName} · ${profile.accountNumber} · ${
+                        profile.verified ? 'verified' : 'pending'
+                      }`
+                    );
+                    setPayoutForm((prev) => ({ ...prev, accountNumber: '' }));
+                    toast.success('Payout profile saved');
+                  })
+                  .catch((error: unknown) =>
+                    toast.error(error instanceof Error ? error.message : 'Unable to save profile')
+                  );
+              }}
+            >
+              <Input
+                placeholder="Account name"
+                value={payoutForm.accountName}
+                onChange={(event) =>
+                  setPayoutForm((prev) => ({ ...prev, accountName: event.target.value }))
+                }
+                required
+              />
+              <Input
+                placeholder="Account number"
+                value={payoutForm.accountNumber}
+                onChange={(event) =>
+                  setPayoutForm((prev) => ({ ...prev, accountNumber: event.target.value }))
+                }
+                required
+              />
+              <select
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                value={payoutForm.bankCode}
+                onChange={(event) =>
+                  setPayoutForm((prev) => ({ ...prev, bankCode: event.target.value }))
+                }
+                required
+              >
+                <option value="">Select bank</option>
+                {banks.map((bank) => (
+                  <option key={bank.code} value={bank.code}>
+                    {bank.name}
+                  </option>
+                ))}
+              </select>
+              <Button type="submit">Save payout details</Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-3">

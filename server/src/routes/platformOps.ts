@@ -7,6 +7,13 @@ import { addShippingEvent, listShippingEvents } from '../lib/shipping.js';
 import { collectMonitoringSnapshot } from '../lib/monitoring.js';
 import { processJobQueue, enqueueRecurringJobs } from '../jobs/worker.js';
 import { listJobs } from '../jobs/queue.js';
+import {
+  getSellerPayoutProfile,
+  publicPayoutProfile,
+  SA_BANK_OPTIONS,
+  upsertSellerPayoutProfile,
+} from '../lib/sellerPayoutProfile.js';
+import { listReturns, openReturnRequest, transitionReturn } from '../lib/returns.js';
 
 export const platformOpsRouter = Router();
 
@@ -198,4 +205,116 @@ platformOpsRouter.post('/jobs/run', requireAuth, async (req: AuthenticatedReques
   await enqueueRecurringJobs();
   const processed = await processJobQueue(20);
   res.json({ ok: true, processed, jobs: await listJobs(20) });
+});
+
+platformOpsRouter.get('/payout-profile/banks', requireAuth, (_req, res) => {
+  res.json(SA_BANK_OPTIONS);
+});
+
+platformOpsRouter.get('/payout-profile', requireAuth, async (req: AuthenticatedRequest, res) => {
+  if (!['seller', 'admin', 'moderator'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'Seller account required' });
+    return;
+  }
+  const sellerId =
+    ['admin', 'moderator'].includes(req.user!.role) && typeof req.query.sellerId === 'string'
+      ? req.query.sellerId
+      : req.user!.id;
+  const profile = await getSellerPayoutProfile(sellerId);
+  res.json(profile ? publicPayoutProfile(profile) : null);
+});
+
+platformOpsRouter.put('/payout-profile', requireAuth, async (req: AuthenticatedRequest, res) => {
+  if (req.user!.role !== 'seller' && !['admin', 'moderator'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'Seller account required' });
+    return;
+  }
+  const parsed = z
+    .object({
+      accountName: z.string().min(2).max(120),
+      accountNumber: z.string().min(6).max(20),
+      bankCode: z.string().min(3).max(20),
+      bankName: z.string().max(80).optional(),
+      sellerId: z.string().min(1).optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid payout profile payload' });
+    return;
+  }
+  try {
+    const sellerId =
+      ['admin', 'moderator'].includes(req.user!.role) && parsed.data.sellerId
+        ? parsed.data.sellerId
+        : req.user!.id;
+    res.json(
+      await upsertSellerPayoutProfile({
+        sellerId,
+        accountName: parsed.data.accountName,
+        accountNumber: parsed.data.accountNumber,
+        bankCode: parsed.data.bankCode,
+        bankName: parsed.data.bankName,
+      })
+    );
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to save payout profile' });
+  }
+});
+
+platformOpsRouter.post('/returns', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const parsed = z
+    .object({ orderId: z.string().min(1), reason: z.string().min(8).max(2000) })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid return payload' });
+    return;
+  }
+  try {
+    const item = await openReturnRequest({
+      orderId: parsed.data.orderId,
+      buyerId: req.user!.id,
+      reason: parsed.data.reason,
+    });
+    res.status(201).json(item);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to open return' });
+  }
+});
+
+platformOpsRouter.get('/returns', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const isStaff = ['admin', 'moderator'].includes(req.user!.role);
+  if (isStaff) {
+    res.json(
+      await listReturns(
+        typeof req.query.orderId === 'string' ? { orderId: req.query.orderId } : undefined
+      )
+    );
+    return;
+  }
+  res.json(await listReturns({ buyerId: req.user!.id }));
+});
+
+platformOpsRouter.post('/returns/:id/transitions', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const parsed = z
+    .object({
+      action: z.enum(['approve', 'reject', 'mark_shipped', 'mark_received', 'refund', 'close']),
+      notes: z.string().max(2000).optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid return transition' });
+    return;
+  }
+  try {
+    res.json(
+      await transitionReturn({
+        returnId: req.params.id,
+        actorId: req.user!.id,
+        action: parsed.data.action,
+        notes: parsed.data.notes,
+      })
+    );
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to update return' });
+  }
 });

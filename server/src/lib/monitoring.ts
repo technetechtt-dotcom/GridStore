@@ -2,6 +2,8 @@ import { listSecurityEvents } from './security.js';
 import { listPayments } from './payments.js';
 import { accountBalanceCents, listLedgerJournals, validateLedgerIntegrity } from './ledger.js';
 import { platformStore } from '../store/index.js';
+import { listReturns } from './returns.js';
+import { listPayouts } from './settlement.js';
 
 export interface MonitoringSnapshot {
   generatedAt: string;
@@ -12,6 +14,8 @@ export interface MonitoringSnapshot {
     recentAuthFailures: number;
     ledgerJournals: number;
     sellerPayableCents: number;
+    openReturns: number;
+    failedPayouts: number;
   };
   alerts: string[];
 }
@@ -38,6 +42,11 @@ export async function collectMonitoringSnapshot(): Promise<MonitoringSnapshot> {
       Date.now() - new Date(event.createdAt).getTime() < 60 * 60 * 1000
   ).length;
 
+  const openReturns = (await listReturns()).filter((item) =>
+    ['requested', 'approved', 'item_shipped', 'received'].includes(item.status)
+  ).length;
+  const failedPayouts = (await listPayouts()).filter((item) => item.status === 'failed').length;
+
   try {
     await validateLedgerIntegrity();
   } catch (error) {
@@ -54,6 +63,8 @@ export async function collectMonitoringSnapshot(): Promise<MonitoringSnapshot> {
   if (stuckPendingOrders > 0) alerts.push(`${stuckPendingOrders} orders stuck in pending_payment >1h`);
   if (failedPayments > 5) alerts.push(`${failedPayments} failed payments in store`);
   if (recentAuthFailures > 20) alerts.push(`${recentAuthFailures} auth failures in the last hour`);
+  if (openReturns > 10) alerts.push(`${openReturns} open return/RMA cases`);
+  if (failedPayouts > 0) alerts.push(`${failedPayouts} failed seller payouts need review`);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -64,6 +75,8 @@ export async function collectMonitoringSnapshot(): Promise<MonitoringSnapshot> {
       recentAuthFailures,
       ledgerJournals: listLedgerJournals().length,
       sellerPayableCents: accountBalanceCents('seller_payable'),
+      openReturns,
+      failedPayouts,
     },
     alerts,
   };

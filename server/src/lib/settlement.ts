@@ -153,7 +153,10 @@ export async function processDuePayouts(actorId = 'system') {
     payout.status = 'processing';
     await persistPayout(payout);
 
-    const recipientCode = process.env[`PAYSTACK_RECIPIENT_${payout.sellerId}`];
+    const { resolveTransferRecipientCode } = await import('./sellerPayoutProfile.js');
+    const recipientCode =
+      (await resolveTransferRecipientCode(payout.sellerId)) ||
+      process.env[`PAYSTACK_RECIPIENT_${payout.sellerId}`];
     if (recipientCode && process.env.PAYSTACK_SECRET_KEY) {
       try {
         const { initiatePaystackTransfer } = await import('./paystack.js');

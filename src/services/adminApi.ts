@@ -242,6 +242,8 @@ export interface PlatformMonitoringSnapshot {
     recentAuthFailures: number;
     ledgerJournals: number;
     sellerPayableCents: number;
+    openReturns?: number;
+    failedPayouts?: number;
   };
   alerts: string[];
 }
@@ -322,5 +324,29 @@ export function apiSchedulePlatformPayout(input: {
 export function apiRunPlatformJobs() {
   return platformFetch<{ ok: boolean; processed: number }>('/platform/jobs/run', {
     method: 'POST',
+  });
+}
+
+export function apiGetPlatformReturns() {
+  return platformFetch<
+    Array<{
+      id: string;
+      orderId: string;
+      buyerId: string;
+      reason: string;
+      status: string;
+      rmaCode: string;
+      createdAt: string;
+    }>
+  >('/platform/returns');
+}
+
+export function apiTransitionPlatformReturn(
+  returnId: string,
+  input: { action: string; notes?: string }
+) {
+  return platformFetch(`/platform/returns/${encodeURIComponent(returnId)}/transitions`, {
+    method: 'POST',
+    body: JSON.stringify(input),
   });
 }

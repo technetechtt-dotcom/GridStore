@@ -64,6 +64,8 @@ import {
   apiResolvePlatformDispute,
   apiRunPlatformJobs,
   apiGetPlatformPayouts,
+  apiGetPlatformReturns,
+  apiTransitionPlatformReturn,
   apiResetAdminUserPassword,
   apiUpdateAdminListing,
   apiUpdateAdminOrder,
@@ -856,14 +858,27 @@ export function AdminDisputes() {
 export function AdminOps() {
   const monitoringQuery = useAdminResource(apiGetPlatformMonitoring);
   const payoutsQuery = useAdminResource(apiGetPlatformPayouts);
+  const returnsQuery = useAdminResource(apiGetPlatformReturns);
 
   const runJobs = async () => {
     try {
       const result = await apiRunPlatformJobs();
       toast.success(`Processed ${result.processed} background jobs`);
       void monitoringQuery.refresh();
+      void returnsQuery.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Job run failed');
+    }
+  };
+
+  const handleReturn = async (returnId: string, action: string) => {
+    try {
+      await apiTransitionPlatformReturn(returnId, { action });
+      toast.success(`Return ${action.replace('_', ' ')}`);
+      void returnsQuery.refresh();
+      void monitoringQuery.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Return update failed');
     }
   };
 
@@ -878,7 +893,7 @@ export function AdminOps() {
     <div className="space-y-6 animate-fade-in">
       <PageHeader
         title="Platform Ops"
-        description="Monitoring alerts, payouts, and background job controls."
+        description="Monitoring alerts, payouts, returns, and background job controls."
       />
       <div className="flex gap-2">
         <Button variant="outline" onClick={() => void monitoringQuery.refresh()}>
@@ -887,7 +902,7 @@ export function AdminOps() {
         </Button>
         <Button onClick={() => void runJobs()}>Run background jobs</Button>
       </div>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
           label="Stuck orders"
           value={String(monitoring?.counts.stuckPendingOrders ?? 0)}
@@ -902,6 +917,16 @@ export function AdminOps() {
           label="Seller payable"
           value={formatCurrency((monitoring?.counts.sellerPayableCents ?? 0) / 100)}
           icon={Activity}
+        />
+        <StatCard
+          label="Open returns"
+          value={String(monitoring?.counts.openReturns ?? 0)}
+          icon={Package}
+        />
+        <StatCard
+          label="Failed payouts"
+          value={String(monitoring?.counts.failedPayouts ?? 0)}
+          icon={Flag}
         />
       </div>
       {(monitoring?.alerts.length ?? 0) > 0 && (
@@ -918,6 +943,58 @@ export function AdminOps() {
           </CardContent>
         </Card>
       )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Returns / RMA</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>RMA</TableHead>
+                <TableHead>Order</TableHead>
+                <TableHead>Reason</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(returnsQuery.data ?? []).map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell className="font-mono text-xs">{item.rmaCode}</TableCell>
+                  <TableCell className="font-mono text-xs">{item.orderId}</TableCell>
+                  <TableCell className="max-w-xs truncate">{item.reason}</TableCell>
+                  <TableCell>
+                    <Badge variant={statusBadgeVariant(item.status)}>{item.status}</Badge>
+                  </TableCell>
+                  <TableCell className="text-right space-x-2">
+                    {item.status === 'requested' && (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => void handleReturn(item.id, 'approve')}>
+                          Approve
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => void handleReturn(item.id, 'reject')}>
+                          Reject
+                        </Button>
+                      </>
+                    )}
+                    {item.status === 'item_shipped' && (
+                      <Button size="sm" variant="outline" onClick={() => void handleReturn(item.id, 'mark_received')}>
+                        Mark received
+                      </Button>
+                    )}
+                    {['approved', 'received'].includes(item.status) && (
+                      <Button size="sm" onClick={() => void handleReturn(item.id, 'refund')}>
+                        Refund
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>Scheduled payouts</CardTitle>

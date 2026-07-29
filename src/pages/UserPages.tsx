@@ -10,7 +10,7 @@ import {
   ReceiptText } from
 'lucide-react';
 import { toast } from 'sonner';
-import { apiCreatePaymentIntent, apiOpenDispute, isPlatformApiAvailable } from '../services/platformApi';
+import { apiCreatePaymentIntent, apiOpenDispute, apiOpenReturn, isPlatformApiAvailable } from '../services/platformApi';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -356,6 +356,28 @@ export function OrderHistory() {
                     >
                       Request refund
                     </Button>
+                    {isPlatformApiAvailable() &&
+                      ['shipped', 'delivered'].includes(order.status) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const reason = window.prompt('Why are you returning this order?');
+                            if (!reason?.trim()) return;
+                            void apiOpenReturn({ orderId: order.id, reason: reason.trim() })
+                              .then((rma) =>
+                                toast.success(`Return opened — RMA ${rma.rmaCode}`)
+                              )
+                              .catch((error: unknown) =>
+                                toast.error(
+                                  error instanceof Error ? error.message : 'Unable to open return'
+                                )
+                              );
+                          }}
+                        >
+                          Start return
+                        </Button>
+                      )}
                     {isPlatformApiAvailable() &&
                       ['paid', 'processing', 'shipped', 'delivered'].includes(order.status) && (
                         <Button

@@ -617,6 +617,44 @@ const VERSIONED_MIGRATIONS: Array<{
       await db`DROP TABLE IF EXISTS gridstore_email_outbox`;
     },
   },
+  {
+    id: '20260729_returns_and_payout_profiles',
+    async up(db) {
+      await db`
+        CREATE TABLE IF NOT EXISTS gridstore_seller_payout_profiles (
+          seller_id TEXT PRIMARY KEY REFERENCES gridstore_users(id) ON DELETE CASCADE,
+          account_name TEXT NOT NULL,
+          account_number TEXT NOT NULL,
+          bank_code TEXT NOT NULL,
+          bank_name TEXT,
+          recipient_code TEXT,
+          verified BOOLEAN NOT NULL DEFAULT false,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+      await db`
+        CREATE TABLE IF NOT EXISTS gridstore_returns (
+          id TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL REFERENCES gridstore_orders(id) ON DELETE CASCADE,
+          buyer_id TEXT NOT NULL REFERENCES gridstore_users(id) ON DELETE CASCADE,
+          reason TEXT NOT NULL,
+          status TEXT NOT NULL,
+          window_expires_at TIMESTAMPTZ NOT NULL,
+          rma_code TEXT NOT NULL UNIQUE,
+          notes TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+      await db`CREATE INDEX IF NOT EXISTS idx_gridstore_returns_order ON gridstore_returns(order_id, status)`;
+      await db`CREATE INDEX IF NOT EXISTS idx_gridstore_returns_buyer ON gridstore_returns(buyer_id, created_at DESC)`;
+    },
+    async down(db) {
+      await db`DROP TABLE IF EXISTS gridstore_returns`;
+      await db`DROP TABLE IF EXISTS gridstore_seller_payout_profiles`;
+    },
+  },
 ];
 
 async function applyVersionedMigrations(db: Sql) {

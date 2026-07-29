@@ -418,6 +418,69 @@ export async function apiGetSellerPayoutSummary() {
   return platformFetch<SellerPayoutSummary>('/platform/payouts/summary');
 }
 
+export interface SellerPayoutProfile {
+  sellerId: string;
+  accountName: string;
+  accountNumber: string;
+  bankCode: string;
+  bankName?: string;
+  recipientCode?: string;
+  verified: boolean;
+}
+
+export async function apiGetPayoutBanks() {
+  return platformFetch<Array<{ code: string; name: string }>>('/platform/payout-profile/banks');
+}
+
+export async function apiGetPayoutProfile() {
+  return platformFetch<SellerPayoutProfile | null>('/platform/payout-profile');
+}
+
+export async function apiSavePayoutProfile(input: {
+  accountName: string;
+  accountNumber: string;
+  bankCode: string;
+  bankName?: string;
+}) {
+  return platformFetch<SellerPayoutProfile>('/platform/payout-profile', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export interface ReturnRequest {
+  id: string;
+  orderId: string;
+  buyerId: string;
+  reason: string;
+  status: string;
+  windowExpiresAt: string;
+  rmaCode: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export async function apiOpenReturn(input: { orderId: string; reason: string }) {
+  return platformFetch<ReturnRequest>('/platform/returns', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function apiListReturns() {
+  return platformFetch<ReturnRequest[]>('/platform/returns');
+}
+
+export async function apiTransitionReturn(
+  returnId: string,
+  input: { action: string; notes?: string }
+) {
+  return platformFetch<ReturnRequest>(`/platform/returns/${encodeURIComponent(returnId)}/transitions`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 function normalizeListing(row: Record<string, unknown>): SellerListing {
   return {
     id: String(row.id),
