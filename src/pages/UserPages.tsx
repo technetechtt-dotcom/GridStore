@@ -10,7 +10,7 @@ import {
   ReceiptText } from
 'lucide-react';
 import { toast } from 'sonner';
-import { apiCreatePaymentIntent, apiOpenDispute, apiOpenReturn, isPlatformApiAvailable } from '../services/platformApi';
+import { apiCreatePaymentIntent, apiOpenDispute, apiOpenReturn, apiUploadEvidence, isPlatformApiAvailable } from '../services/platformApi';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -364,23 +364,59 @@ export function OrderHistory() {
                           onClick={() => {
                             const reason = window.prompt('Why are you returning this order?');
                             if (!reason?.trim()) return;
-                            const attachmentUrl = window.prompt(
-                              'Optional evidence URL (https image/PDF), or leave blank:'
-                            );
-                            void apiOpenReturn({
-                              orderId: order.id,
-                              reason: reason.trim(),
-                              evidenceNote: reason.trim(),
-                              attachmentUrl: attachmentUrl?.trim() || undefined,
-                            })
-                              .then((rma) =>
-                                toast.success(`Return opened — RMA ${rma.rmaCode}`)
-                              )
-                              .catch((error: unknown) =>
+
+                            const submitReturn = async (attachment?: {
+                              attachmentUrl?: string;
+                              attachmentName?: string;
+                              mimeType?: string;
+                            }) => {
+                              try {
+                                const rma = await apiOpenReturn({
+                                  orderId: order.id,
+                                  reason: reason.trim(),
+                                  evidenceNote: reason.trim(),
+                                  ...attachment,
+                                });
+                                toast.success(`Return opened — RMA ${rma.rmaCode}`);
+                              } catch (error: unknown) {
                                 toast.error(
                                   error instanceof Error ? error.message : 'Unable to open return'
-                                )
-                              );
+                                );
+                              }
+                            };
+
+                            const attach = window.confirm(
+                              'Attach optional evidence (JPEG/PNG/WebP/GIF/PDF up to 5MB)?'
+                            );
+                            if (!attach) {
+                              void submitReturn();
+                              return;
+                            }
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.accept = 'image/jpeg,image/png,image/webp,image/gif,application/pdf';
+                            input.onchange = () => {
+                              const file = input.files?.[0];
+                              void (async () => {
+                                if (!file) {
+                                  await submitReturn();
+                                  return;
+                                }
+                                try {
+                                  const uploaded = await apiUploadEvidence(file);
+                                  await submitReturn({
+                                    attachmentUrl: uploaded.url,
+                                    attachmentName: uploaded.attachmentName,
+                                    mimeType: uploaded.mimeType,
+                                  });
+                                } catch (error: unknown) {
+                                  toast.error(
+                                    error instanceof Error ? error.message : 'Unable to upload evidence'
+                                  );
+                                }
+                              })();
+                            };
+                            input.click();
                           }}
                         >
                           Start return

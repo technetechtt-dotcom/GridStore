@@ -42,6 +42,8 @@ services:
         sync: false
       - key: RESEND_FROM_EMAIL
         sync: false
+      - key: SHIPPING_PROVIDER
+        value: sandbox
       - key: PAYOUT_HOLD_DAYS
         value: "7"
       - key: PAYMENT_SANDBOX_AUTO_CAPTURE

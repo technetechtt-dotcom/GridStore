@@ -525,6 +525,32 @@ export async function apiOpenReturn(input: {
   });
 }
 
+export async function apiUploadEvidence(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  const token = getAuthToken();
+  const response = await fetch(buildApiUrl('/uploads/evidence'), {
+    method: 'POST',
+    headers: token
+      ? {
+          Authorization: `Bearer ${token}`,
+        }
+      : undefined,
+    body: form,
+  });
+  const payload = await parseJsonResponse<{
+    url: string;
+    attachmentName: string;
+    mimeType: string;
+    size: number;
+    error?: string;
+  }>(response);
+  if (!response.ok) {
+    throw new Error(payload.error || 'Upload failed');
+  }
+  return payload;
+}
+
 export async function apiListReturns() {
   return platformFetch<ReturnRequest[]>('/platform/returns');
 }

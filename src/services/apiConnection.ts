@@ -54,10 +54,19 @@ function isTransientApiError(error: unknown) {
   );
 }
 
+function allowDemoFallback() {
+  return !import.meta.env.PROD;
+}
+
 function showFallbackNotice(error: unknown) {
   if (fallbackNoticeShown) return;
   fallbackNoticeShown = true;
-  console.warn('[api] Falling back to local catalog data.', error);
+  console.warn(
+    allowDemoFallback()
+      ? '[api] Falling back to local catalog data.'
+      : '[api] Platform API unavailable — demo catalog disabled in production.',
+    error
+  );
 }
 
 export async function probeApiConnection() {
@@ -139,9 +148,14 @@ export async function checkApiConnection(options: { silent?: boolean } = {}) {
       return false;
     }
     if (!silent) {
-      setApiMode('demo');
+      if (allowDemoFallback()) {
+        setApiMode('demo');
+        showFallbackNotice(error);
+      } else {
+        setApiMode('checking');
+        showFallbackNotice(error);
+      }
       setConnectionStatus('disconnected');
-      showFallbackNotice(error);
     }
     return false;
   } finally {
@@ -155,8 +169,10 @@ export function notifyApiRequestSuccess() {
 
 export function notifyApiRequestFailure(error: unknown) {
   if (isTransientApiError(error)) return;
-  setApiMode('demo');
-  showFallbackNotice(error);
+  if (allowDemoFallback()) {
+    setApiMode('demo');
+    showFallbackNotice(error);
+  }
 }
 
 function scheduleMonitorTick() {

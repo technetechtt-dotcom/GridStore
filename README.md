@@ -107,7 +107,7 @@ Invalid or missing values fall back to the defaults above.
 
 ## Production checklist
 
-GridStore is **ZAR-only**. Carrier label purchase APIs are not integrated yet — shipping is recorded as events + tracking numbers.
+GridStore is **ZAR-only**. Default shipping provider is the **sandbox carrier** (generates `GS-SBX-…` tracking + HTML labels). Real courier APIs are not wired yet.
 
 Required API secrets (also listed in `server/.env.example` and `render.yaml`):
 
@@ -116,8 +116,9 @@ Required API secrets (also listed in `server/.env.example` and `render.yaml`):
 | `DATABASE_URL` | Postgres (Neon). Required in production. |
 | `JWT_SECRET` | Session signing (must not be the demo default). |
 | `PAYMENT_WEBHOOK_SECRET` | Webhook HMAC verification. |
-| `PAYMENT_PROVIDER=paystack` | Live payments. |
+| `PAYMENT_PROVIDER=paystack` | Live payments (sandbox blocked unless `ALLOW_SANDBOX_PAYMENTS=true`). |
 | `PAYSTACK_SECRET_KEY` | Paystack secret. |
+| `RESEND_API_KEY` or `TRANSACTIONAL_EMAIL_WEBHOOK` | Required in production for transactional email. |
 | `CORS_ORIGIN` / `CORS_EXTRA_ORIGIN` | Exact web + admin origins (no wildcards). |
 | `PUBLIC_WEB_URL` / `PUBLIC_ADMIN_URL` | Absolute public URLs. |
 
@@ -130,6 +131,7 @@ Recommended:
 | `PLATFORM_FEE_RATE` | Seller fee (default `0.12`). |
 | `PAYOUT_HOLD_DAYS` | Settlement hold before auto payout (default `7`). |
 | `RETURN_WINDOW_DAYS` | Buyer return window (default `14`). |
+| `SHIPPING_PROVIDER` | `sandbox` (default) or `manual`. |
 
 Deploy notes:
 

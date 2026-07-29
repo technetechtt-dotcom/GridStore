@@ -7,6 +7,7 @@ import {
   seedServices,
   seedStores,
 } from '../data/seed.js';
+import { env } from '../config/env.js';
 import type {
   CatalogItemStatus,
   Job,
@@ -28,11 +29,19 @@ class CatalogStore {
   private stores: StoreProfile[];
 
   constructor() {
-    this.products = seedProducts.map((item) => ({ ...item, status: 'active' as const }));
-    this.services = seedServices.map((item) => ({ ...item, status: 'active' as const }));
-    this.rentals = seedRentals.map((item) => ({ ...item, status: 'active' as const }));
-    this.jobs = seedJobs.map((item) => ({ ...item, status: 'active' as const }));
-    this.stores = [...seedStores];
+    if (env.enableDemoData) {
+      this.products = seedProducts.map((item) => ({ ...item, status: 'active' as const }));
+      this.services = seedServices.map((item) => ({ ...item, status: 'active' as const }));
+      this.rentals = seedRentals.map((item) => ({ ...item, status: 'active' as const }));
+      this.jobs = seedJobs.map((item) => ({ ...item, status: 'active' as const }));
+      this.stores = [...seedStores];
+    } else {
+      this.products = [];
+      this.services = [];
+      this.rentals = [];
+      this.jobs = [];
+      this.stores = [];
+    }
   }
 
   listProducts(query = '', category = '') {

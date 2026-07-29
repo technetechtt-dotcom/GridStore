@@ -5,6 +5,7 @@ import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import { addDisputeEvidence, listDisputes, openDispute, resolveDispute } from '../lib/disputes.js';
 import { listPayouts, markPayoutPaid, scheduleSellerPayout, sellerPayoutSummary } from '../lib/settlement.js';
 import { addShippingEvent, findOrderIdByTrackingNumber, listShippingEvents } from '../lib/shipping.js';
+import { createCarrierShipment, getSandboxLabel } from '../lib/carriers/index.js';
 import { collectMonitoringSnapshot } from '../lib/monitoring.js';
 import { processJobQueue, enqueueRecurringJobs } from '../jobs/worker.js';
 import { listJobs } from '../jobs/queue.js';
@@ -36,7 +37,7 @@ platformOpsRouter.use((req, res, next) => {
 });
 
 const attachmentFields = {
-  attachmentUrl: z.string().url().max(2000).optional(),
+  attachmentUrl: z.union([z.string().url().max(2000), z.string().regex(/^\/api\/uploads\/evidence\/[A-Za-z0-9._-]+$/)]).optional(),
   attachmentName: z.string().min(1).max(260).optional(),
   mimeType: z.string().min(3).max(120).optional(),
 };
@@ -179,7 +180,28 @@ platformOpsRouter.get('/payouts/summary', requireAuth, async (req: Authenticated
   res.json(await sellerPayoutSummary(sellerId));
 });
 
+function canManageShipping(order: { userId: string; lines: Array<{ sellerId?: string }> }, userId: string, role: string) {
+  const isStaff = ['admin', 'moderator'].includes(role);
+  const isBuyer = order.userId === userId;
+  const isSeller = order.lines.some((line) => line.sellerId === userId);
+  return { isStaff, isBuyer, isSeller, allowed: isStaff || isBuyer || isSeller };
+}
+
+function canWriteShipping(order: { userId: string; lines: Array<{ sellerId?: string }> }, userId: string, role: string) {
+  const { isStaff, isSeller } = canManageShipping(order, userId, role);
+  return isStaff || isSeller;
+}
+
 platformOpsRouter.post('/orders/:orderId/shipping-events', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const order = platformStore.listAllOrders().find((item) => item.id === req.params.orderId);
+  if (!order) {
+    res.status(404).json({ error: 'Order not found' });
+    return;
+  }
+  if (!canWriteShipping(order, req.user!.id, req.user!.role)) {
+    res.status(403).json({ error: 'Only the seller or support staff can record shipping events' });
+    return;
+  }
   const parsed = z
     .object({
       status: z.string().min(2).max(80),
@@ -206,16 +228,69 @@ platformOpsRouter.post('/orders/:orderId/shipping-events', requireAuth, async (r
   }
 });
 
+platformOpsRouter.post('/orders/:orderId/shipments', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const order = platformStore.listAllOrders().find((item) => item.id === req.params.orderId);
+  if (!order) {
+    res.status(404).json({ error: 'Order not found' });
+    return;
+  }
+  if (!canWriteShipping(order, req.user!.id, req.user!.role)) {
+    res.status(403).json({ error: 'Only the seller or support staff can create shipments' });
+    return;
+  }
+  try {
+    const shipment = await createCarrierShipment({
+      orderId: order.id,
+      deliveryAddress: order.deliveryAddress,
+      actorId: req.user!.id,
+    });
+    if (!shipment) {
+      res.status(400).json({ error: 'Shipping provider is set to manual — supply a tracking number on ship' });
+      return;
+    }
+    order.trackingNumber = shipment.trackingNumber;
+    const event = await addShippingEvent({
+      orderId: order.id,
+      actorId: req.user!.id,
+      status: shipment.status,
+      carrier: shipment.carrier,
+      trackingNumber: shipment.trackingNumber,
+      note: `Sandbox label ${shipment.labelId}`,
+    });
+    res.status(201).json({ shipment, event });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to create shipment' });
+  }
+});
+
+platformOpsRouter.get('/shipping/labels/:labelId', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const label = getSandboxLabel(req.params.labelId);
+  if (!label) {
+    res.status(404).json({ error: 'Label not found' });
+    return;
+  }
+  const order = platformStore.listAllOrders().find((item) => item.id === label.orderId);
+  if (!order) {
+    res.status(404).json({ error: 'Order not found' });
+    return;
+  }
+  const access = canManageShipping(order, req.user!.id, req.user!.role);
+  if (!access.allowed) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(label.html);
+});
+
 platformOpsRouter.get('/orders/:orderId/shipping-events', requireAuth, async (req: AuthenticatedRequest, res) => {
   const order = platformStore.listAllOrders().find((item) => item.id === req.params.orderId);
   if (!order) {
     res.status(404).json({ error: 'Order not found' });
     return;
   }
-  const isStaff = ['admin', 'moderator'].includes(req.user!.role);
-  const isBuyer = order.userId === req.user!.id;
-  const isSeller = order.lines.some((line) => line.sellerId === req.user!.id);
-  if (!isStaff && !isBuyer && !isSeller) {
+  const access = canManageShipping(order, req.user!.id, req.user!.role);
+  if (!access.allowed) {
     res.status(403).json({ error: 'Forbidden' });
     return;
   }
@@ -238,10 +313,8 @@ platformOpsRouter.get('/shipping/track', requireAuth, async (req: AuthenticatedR
     res.status(404).json({ error: 'Order not found' });
     return;
   }
-  const isStaff = ['admin', 'moderator'].includes(req.user!.role);
-  const isBuyer = order.userId === req.user!.id;
-  const isSeller = order.lines.some((line) => line.sellerId === req.user!.id);
-  if (!isStaff && !isBuyer && !isSeller) {
+  const access = canManageShipping(order, req.user!.id, req.user!.role);
+  if (!access.allowed) {
     res.status(403).json({ error: 'Forbidden' });
     return;
   }

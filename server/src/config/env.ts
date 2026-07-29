@@ -95,6 +95,19 @@ export function assertSecurityConfig() {
     throw new Error('Refusing to start: PAYSTACK_SECRET_KEY is required when PAYMENT_PROVIDER=paystack.');
   }
 
+  const paymentProvider = (process.env.PAYMENT_PROVIDER ?? 'sandbox').toLowerCase();
+  if (paymentProvider === 'sandbox' && process.env.ALLOW_SANDBOX_PAYMENTS !== 'true') {
+    throw new Error(
+      'Refusing to start: sandbox payments are not allowed in production. Set PAYMENT_PROVIDER=paystack or ALLOW_SANDBOX_PAYMENTS=true.'
+    );
+  }
+
+  if (!process.env.RESEND_API_KEY && !process.env.TRANSACTIONAL_EMAIL_WEBHOOK) {
+    throw new Error(
+      'Refusing to start: RESEND_API_KEY or TRANSACTIONAL_EMAIL_WEBHOOK is required in production.'
+    );
+  }
+
   if (env.corsOrigins.length === 0) {
     throw new Error(
       'Refusing to start: CORS_ORIGIN (or PUBLIC_WEB_URL / PUBLIC_ADMIN_URL) must list exact approved domains.'

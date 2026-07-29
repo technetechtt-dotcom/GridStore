@@ -616,13 +616,33 @@ export class MemoryPlatformStore implements PlatformStore {
     );
 
     if (action === 'ship') {
+      let trackingNumber = meta?.trackingNumber?.trim() || order.trackingNumber;
+      let carrier: string | undefined;
+      let labelNote = 'Order marked shipped via fulfilment transition';
+      if (!trackingNumber) {
+        const { createCarrierShipment } = await import('../lib/carriers/index.js');
+        const shipment = await createCarrierShipment({
+          orderId,
+          deliveryAddress: order.deliveryAddress,
+          actorId: actor.userId,
+        });
+        if (shipment) {
+          trackingNumber = shipment.trackingNumber;
+          carrier = shipment.carrier;
+          labelNote = `Sandbox label ${shipment.labelId} · ${shipment.labelUrl}`;
+          order.trackingNumber = trackingNumber;
+        }
+      } else {
+        order.trackingNumber = trackingNumber;
+      }
       const { addShippingEvent } = await import('../lib/shipping.js');
       await addShippingEvent({
         orderId,
         actorId: actor.userId,
         status: 'shipped',
-        trackingNumber: meta?.trackingNumber ?? order.trackingNumber,
-        note: 'Order marked shipped via fulfilment transition',
+        carrier,
+        trackingNumber,
+        note: labelNote,
       });
     }
 

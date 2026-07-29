@@ -30,6 +30,7 @@ import { servicesRouter } from './routes/services.js';
 import { storesRouter } from './routes/stores.js';
 import { wishlistRouter } from './routes/wishlist.js';
 import { platformOpsRouter } from './routes/platformOps.js';
+import { uploadsRouter } from './routes/uploads.js';
 
 function isAllowedCorsOrigin(origin?: string) {
   if (!origin) return true;
@@ -48,6 +49,8 @@ function isAllowedCorsOrigin(origin?: string) {
 }
 
 function isCatalogPath(path: string) {
+  // In production, catalog routes wait for store readiness like everything else.
+  if (env.isProduction) return false;
   return /^\/(products|services|rentals|jobs)(\/|$)/.test(path);
 }
 
@@ -180,6 +183,7 @@ export function createApp() {
   api.use('/orders', ordersRouter);
   api.use('/payments', paymentsRouter);
   api.use('/platform', platformOpsRouter);
+  api.use('/uploads', uploadsRouter);
   api.use('/listings', listingsRouter);
   api.use('/cart', cartRouter);
   api.use('/wishlist', wishlistRouter);

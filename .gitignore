@@ -25,3 +25,6 @@ server/.env
 *.njsproj
 *.sln
 *.sw?
+
+# Local evidence / upload storage
+server/uploads/

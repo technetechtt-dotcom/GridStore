@@ -236,13 +236,17 @@ export async function addReturnEvidence(input: {
     throw new Error('Not allowed to add evidence to this return');
   }
   if (input.attachmentUrl) {
-    try {
-      const url = new URL(input.attachmentUrl);
-      if (!['http:', 'https:'].includes(url.protocol)) {
-        throw new Error('Attachment URL must be http(s)');
+    const url = input.attachmentUrl.trim();
+    const isLocalUpload = url.startsWith('/api/uploads/evidence/');
+    if (!isLocalUpload) {
+      try {
+        const parsed = new URL(url);
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('Attachment URL must be http(s)');
+        }
+      } catch {
+        throw new Error('Invalid attachment URL');
       }
-    } catch {
-      throw new Error('Invalid attachment URL');
     }
   }
 
