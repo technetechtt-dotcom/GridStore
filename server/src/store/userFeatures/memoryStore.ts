@@ -55,6 +55,19 @@ export class MemoryUserFeaturesStore implements UserFeaturesStore {
     return [...(this.notifications.get(userId) ?? [])];
   }
 
+  async pushNotification(userId: string, input: { title: string; description: string }) {
+    const item: NotificationItem = {
+      id: createId('notif'),
+      title: input.title.trim(),
+      description: input.description.trim(),
+      createdAt: nowLabel(),
+      unread: true,
+    };
+    const next = [item, ...(await this.listNotifications(userId))];
+    this.notifications.set(userId, next);
+    return item;
+  }
+
   async markNotificationRead(userId: string, notificationId: string) {
     const next = (await this.listNotifications(userId)).map((item) =>
       item.id === notificationId ? { ...item, unread: false } : item

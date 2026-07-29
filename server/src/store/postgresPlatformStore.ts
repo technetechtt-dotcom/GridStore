@@ -213,9 +213,10 @@ export class PostgresPlatformStore implements PlatformStore {
       linesByOrder.set(line.order_id, existing);
     });
 
+    this.idempotency.clear();
     this.orders = orderRows.map((row) => {
       const totalCents = Number(row.total_cents ?? randsToCents(Number(row.total)));
-      return {
+      const order = {
         id: row.id,
         userId: row.user_id,
         status: row.status,
@@ -230,6 +231,10 @@ export class PostgresPlatformStore implements PlatformStore {
         lines: linesByOrder.get(row.id) ?? [],
         idempotencyKey: row.idempotency_key ?? undefined,
       };
+      if (row.idempotency_key) {
+        this.idempotency.set(`${row.user_id}:${row.idempotency_key}`, row.id);
+      }
+      return order;
     });
 
     const listingRows = (await db`SELECT * FROM gridstore_listings`) as ListingRow[];
@@ -1083,9 +1088,27 @@ export class PostgresPlatformStore implements PlatformStore {
 
     const idemKey = input.idempotencyKey?.trim();
     if (idemKey) {
-      const existingId = this.idempotency.get(`${userId}:${idemKey}`);
+      const cacheKey = `${userId}:${idemKey}`;
+      const existingId = this.idempotency.get(cacheKey);
       if (existingId) {
         const existing = this.orders.find((order) => order.id === existingId);
+        if (existing) return existing;
+      }
+      const dbLookup = requireSql();
+      const existingRows = (await dbLookup`
+        SELECT id FROM gridstore_orders
+        WHERE user_id = ${userId} AND idempotency_key = ${idemKey}
+        LIMIT 1
+      `) as Array<{ id: string }>;
+      if (existingRows[0]) {
+        const orderId = existingRows[0].id;
+        this.idempotency.set(cacheKey, orderId);
+        let existing = this.orders.find((order) => order.id === orderId);
+        if (!existing) {
+          this.ready = false;
+          await this.ensureSeeded();
+          existing = this.orders.find((order) => order.id === orderId);
+        }
         if (existing) return existing;
       }
     }

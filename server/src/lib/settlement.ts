@@ -130,6 +130,18 @@ export async function markPayoutPaid(payoutId: string, actorId = 'system', trans
     ],
   });
   recordSecurityEvent('payout.paid', { actorId, targetId: payout.id });
+  const { notifyUser } = await import('./commerceNotify.js');
+  await notifyUser({
+    userId: payout.sellerId,
+    title: 'Payout paid',
+    description: `R ${(payout.amountCents / 100).toFixed(2)} was paid out${
+      transferReference ? ` (ref ${transferReference})` : ''
+    }.`,
+    emailSubject: `Seller payout paid — ${payout.id}`,
+    emailBody: `Payout ${payout.id} of R ${(payout.amountCents / 100).toFixed(2)} is marked paid.${
+      transferReference ? `\nTransfer reference: ${transferReference}` : ''
+    }\nMemo: ${payout.memo}`,
+  });
   return payout;
 }
 
@@ -176,11 +188,35 @@ export async function processDuePayouts(actorId = 'system') {
           targetId: payout.id,
           detail: { error: error instanceof Error ? error.message : 'unknown' },
         });
+        const { notifyUser } = await import('./commerceNotify.js');
+        await notifyUser({
+          userId: payout.sellerId,
+          title: 'Payout transfer failed',
+          description: `Payout ${payout.id} failed. Update your bank profile and contact support if needed.`,
+        });
         continue;
       }
     }
 
-    // Sandbox / no recipient: mark paid locally after hold period.
+    // Dev/test only: mark paid locally when no Paystack recipient is configured.
+    // Production must never auto-disburse without a real transfer recipient.
+    const { env } = await import('../config/env.js');
+    if (env.isProduction) {
+      payout.status = 'failed';
+      await persistPayout(payout);
+      recordSecurityEvent('payout.missing_recipient', {
+        actorId,
+        targetId: payout.id,
+        detail: { sellerId: payout.sellerId },
+      });
+      const { notifyUser } = await import('./commerceNotify.js');
+      await notifyUser({
+        userId: payout.sellerId,
+        title: 'Payout blocked — bank profile required',
+        description: `Payout ${payout.id} could not be sent. Add a verified bank profile to receive funds.`,
+      });
+      continue;
+    }
     results.push(await markPayoutPaid(payout.id, actorId));
   }
   return results;

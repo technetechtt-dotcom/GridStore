@@ -162,43 +162,23 @@ export async function updateAdminOrder(
 export async function listAdminPayments(): Promise<AdminPaymentRow[]> {
   const { adminListPayments } = await import('./paymentService.js');
   const providerPayments = await adminListPayments();
-  if (providerPayments.length) {
-    return providerPayments.map((payment) => ({
-      id: payment.id,
-      reference: payment.reference,
-      method: payment.method,
-      amount: payment.amount,
-      status:
-        payment.status === 'captured'
-          ? 'Settled'
-          : payment.status === 'authorized'
-            ? 'Authorized'
-            : payment.status === 'refunded' || payment.status === 'partially_refunded'
-              ? 'Refunded'
-              : payment.status === 'failed'
-                ? 'Failed'
-                : 'Pending',
-      buyer: payment.buyer,
-      createdAt: payment.createdAt,
-    }));
-  }
-
-  const orders = await listAdminOrders();
-  return orders.map((order) => ({
-    id: order.id,
-    reference: order.receiptNumber,
-    method: order.paymentStatus === 'requires_provider' ? 'Manual EFT' : 'Card',
-    amount: order.total,
+  return providerPayments.map((payment) => ({
+    id: payment.id,
+    reference: payment.reference,
+    method: payment.method,
+    amount: payment.amount,
     status:
-      order.paymentStatus === 'paid'
+      payment.status === 'captured'
         ? 'Settled'
-        : order.paymentStatus === 'authorized'
+        : payment.status === 'authorized'
           ? 'Authorized'
-          : order.paymentStatus === 'refunded'
+          : payment.status === 'refunded' || payment.status === 'partially_refunded'
             ? 'Refunded'
-            : 'Pending',
-    buyer: order.buyerName,
-    createdAt: order.createdAt,
+            : payment.status === 'failed'
+              ? 'Failed'
+              : 'Pending',
+    buyer: payment.buyer,
+    createdAt: payment.createdAt,
   }));
 }
 

@@ -655,6 +655,37 @@ const VERSIONED_MIGRATIONS: Array<{
       await db`DROP TABLE IF EXISTS gridstore_seller_payout_profiles`;
     },
   },
+  {
+    id: '20260729_evidence_attachments',
+    async up(db) {
+      await db`ALTER TABLE gridstore_dispute_evidence ADD COLUMN IF NOT EXISTS attachment_url TEXT`;
+      await db`ALTER TABLE gridstore_dispute_evidence ADD COLUMN IF NOT EXISTS attachment_name TEXT`;
+      await db`ALTER TABLE gridstore_dispute_evidence ADD COLUMN IF NOT EXISTS mime_type TEXT`;
+      await db`
+        CREATE TABLE IF NOT EXISTS gridstore_return_evidence (
+          id TEXT PRIMARY KEY,
+          return_id TEXT NOT NULL REFERENCES gridstore_returns(id) ON DELETE CASCADE,
+          actor_id TEXT NOT NULL,
+          note TEXT NOT NULL,
+          attachment_url TEXT,
+          attachment_name TEXT,
+          mime_type TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+      await db`CREATE INDEX IF NOT EXISTS idx_gridstore_return_evidence_return ON gridstore_return_evidence(return_id, created_at)`;
+      await db`CREATE INDEX IF NOT EXISTS idx_gridstore_orders_idempotency ON gridstore_orders(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL`;
+      await db`CREATE INDEX IF NOT EXISTS idx_gridstore_shipping_tracking ON gridstore_shipping_events(tracking_number) WHERE tracking_number IS NOT NULL`;
+    },
+    async down(db) {
+      await db`DROP INDEX IF EXISTS idx_gridstore_shipping_tracking`;
+      await db`DROP INDEX IF EXISTS idx_gridstore_orders_idempotency`;
+      await db`DROP TABLE IF EXISTS gridstore_return_evidence`;
+      await db`ALTER TABLE gridstore_dispute_evidence DROP COLUMN IF EXISTS mime_type`;
+      await db`ALTER TABLE gridstore_dispute_evidence DROP COLUMN IF EXISTS attachment_name`;
+      await db`ALTER TABLE gridstore_dispute_evidence DROP COLUMN IF EXISTS attachment_url`;
+    },
+  },
 ];
 
 async function applyVersionedMigrations(db: Sql) {

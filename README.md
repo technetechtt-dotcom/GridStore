@@ -58,7 +58,7 @@ The platform ops/admin dashboard can run as its own static site, separate from t
 npm run dev:all
 ```
 
-Then open **http://localhost:5174** and sign in with `admin@gridstore.local` / `demo1234`.
+Then open **http://localhost:5174** and sign in with `admin@gridstore.local` / `DemoSeed-ChangeMe1`.
 
 **Render:**
 
@@ -104,3 +104,38 @@ VITE_IDLE_PROMPT_SECONDS=30
 On Render or other static hosts, set these as build-time environment variables on the web service (they are baked into the Vite bundle at `npm run build`).
 
 Invalid or missing values fall back to the defaults above.
+
+## Production checklist
+
+GridStore is **ZAR-only**. Carrier label purchase APIs are not integrated yet — shipping is recorded as events + tracking numbers.
+
+Required API secrets (also listed in `server/.env.example` and `render.yaml`):
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Postgres (Neon). Required in production. |
+| `JWT_SECRET` | Session signing (must not be the demo default). |
+| `PAYMENT_WEBHOOK_SECRET` | Webhook HMAC verification. |
+| `PAYMENT_PROVIDER=paystack` | Live payments. |
+| `PAYSTACK_SECRET_KEY` | Paystack secret. |
+| `CORS_ORIGIN` / `CORS_EXTRA_ORIGIN` | Exact web + admin origins (no wildcards). |
+| `PUBLIC_WEB_URL` / `PUBLIC_ADMIN_URL` | Absolute public URLs. |
+
+Recommended:
+
+| Variable | Purpose |
+|----------|---------|
+| `RESEND_API_KEY` + `RESEND_FROM_EMAIL` | Transactional email (returns, payouts, shipping). |
+| `MFA_ENCRYPTION_KEY` | Encrypt MFA secrets at rest. |
+| `PLATFORM_FEE_RATE` | Seller fee (default `0.12`). |
+| `PAYOUT_HOLD_DAYS` | Settlement hold before auto payout (default `7`). |
+| `RETURN_WINDOW_DAYS` | Buyer return window (default `14`). |
+
+Deploy notes:
+
+1. Run migrations on API boot (`migrate()` via store seed) or apply manually before traffic.
+2. Point Paystack webhook to `POST /api/payments/webhooks/paystack` with the raw-body signature.
+3. Sellers must complete **bank payout profile** before production payouts will transfer (missing recipients fail closed).
+4. Demo logins (`*@gridstore.local` / `DemoSeed-ChangeMe1`) only exist when `ENABLE_DEMO_DATA=true` (refused in production).
+
+Local demo password for seeded users: **`DemoSeed-ChangeMe1`** (not `demo1234`).

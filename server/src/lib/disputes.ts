@@ -11,7 +11,15 @@ export interface DisputeCase {
   openedBy: string;
   reason: string;
   status: DisputeStatus;
-  evidence: Array<{ id: string; note: string; createdAt: string; actorId: string }>;
+  evidence: Array<{
+    id: string;
+    note: string;
+    createdAt: string;
+    actorId: string;
+    attachmentUrl?: string;
+    attachmentName?: string;
+    mimeType?: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -82,17 +90,33 @@ export async function addDisputeEvidence(input: {
   disputeId: string;
   actorId: string;
   note: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  mimeType?: string;
 }) {
   const dispute = await getDispute(input.disputeId);
   if (!dispute) throw new Error('Dispute not found');
   if (['resolved_buyer', 'resolved_seller', 'closed'].includes(dispute.status)) {
     throw new Error('Cannot add evidence to a closed dispute');
   }
+  if (input.attachmentUrl) {
+    try {
+      const url = new URL(input.attachmentUrl);
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        throw new Error('Attachment URL must be http(s)');
+      }
+    } catch {
+      throw new Error('Invalid attachment URL');
+    }
+  }
   const evidence = {
     id: createId('evid'),
     note: input.note.trim(),
     createdAt: new Date().toISOString(),
     actorId: input.actorId,
+    attachmentUrl: input.attachmentUrl?.trim(),
+    attachmentName: input.attachmentName?.trim(),
+    mimeType: input.mimeType?.trim(),
   };
   dispute.evidence.push(evidence);
   dispute.updatedAt = evidence.createdAt;
@@ -100,8 +124,12 @@ export async function addDisputeEvidence(input: {
   if (hasDatabase()) {
     const db = requireSql();
     await db`
-      INSERT INTO gridstore_dispute_evidence (id, dispute_id, actor_id, note, created_at)
-      VALUES (${evidence.id}, ${dispute.id}, ${evidence.actorId}, ${evidence.note}, ${evidence.createdAt})
+      INSERT INTO gridstore_dispute_evidence (
+        id, dispute_id, actor_id, note, created_at, attachment_url, attachment_name, mime_type
+      ) VALUES (
+        ${evidence.id}, ${dispute.id}, ${evidence.actorId}, ${evidence.note}, ${evidence.createdAt},
+        ${evidence.attachmentUrl ?? null}, ${evidence.attachmentName ?? null}, ${evidence.mimeType ?? null}
+      )
     `;
     await db`
       UPDATE gridstore_disputes SET status = ${dispute.status}, updated_at = ${dispute.updatedAt}
@@ -165,6 +193,9 @@ export async function getDispute(id: string) {
       note: String(row.note),
       createdAt: String(row.created_at),
       actorId: String(row.actor_id),
+      attachmentUrl: row.attachment_url ? String(row.attachment_url) : undefined,
+      attachmentName: row.attachment_name ? String(row.attachment_name) : undefined,
+      mimeType: row.mime_type ? String(row.mime_type) : undefined,
     }))
   );
   memoryDisputes.push(dispute);

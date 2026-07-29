@@ -14,6 +14,10 @@ export interface UserFeaturesStore {
   getWishlist(userId: string): Promise<string[]>;
   saveWishlist(userId: string, productIds: string[]): Promise<string[]>;
   listNotifications(userId: string): Promise<NotificationItem[]>;
+  pushNotification(
+    userId: string,
+    input: { title: string; description: string }
+  ): Promise<NotificationItem>;
   markNotificationRead(userId: string, notificationId: string): Promise<NotificationItem[]>;
   clearAllNotifications(userId: string): Promise<NotificationItem[]>;
   listMessageThreads(userId: string): Promise<MessageThread[]>;

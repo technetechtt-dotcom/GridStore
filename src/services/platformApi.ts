@@ -346,7 +346,15 @@ export interface PlatformDispute {
   openedBy: string;
   reason: string;
   status: string;
-  evidence: Array<{ id: string; note: string; createdAt: string; actorId: string }>;
+  evidence: Array<{
+    id: string;
+    note: string;
+    createdAt: string;
+    actorId: string;
+    attachmentUrl?: string;
+    attachmentName?: string;
+    mimeType?: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -364,10 +372,13 @@ export async function apiListDisputes(orderId?: string) {
   });
 }
 
-export async function apiAddDisputeEvidence(disputeId: string, note: string) {
+export async function apiAddDisputeEvidence(
+  disputeId: string,
+  input: { note: string; attachmentUrl?: string; attachmentName?: string; mimeType?: string }
+) {
   return platformFetch<PlatformDispute>(`/platform/disputes/${encodeURIComponent(disputeId)}/evidence`, {
     method: 'POST',
-    body: JSON.stringify({ note }),
+    body: JSON.stringify(input),
   });
 }
 
@@ -394,6 +405,38 @@ export interface ShippingEvent {
 
 export async function apiListShippingEvents(orderId: string) {
   return platformFetch<ShippingEvent[]>(`/platform/orders/${encodeURIComponent(orderId)}/shipping-events`);
+}
+
+export interface TrackingLookup {
+  orderId: string;
+  status: string;
+  trackingNumber: string;
+  deliveryAddress: string;
+  events: ShippingEvent[];
+}
+
+export async function apiTrackShipment(trackingNumber: string) {
+  return platformFetch<TrackingLookup>('/platform/shipping/track', {
+    query: { trackingNumber },
+  });
+}
+
+export interface BuyerPayment {
+  id: string;
+  orderId: string;
+  userId: string;
+  provider: string;
+  providerReference: string;
+  amountCents: number;
+  currency: string;
+  status: string;
+  authorizationUrl?: string;
+  refundedCents?: number;
+  createdAt: string;
+}
+
+export async function apiListMyPayments() {
+  return platformFetch<BuyerPayment[]>('/payments');
 }
 
 export async function apiTransitionOrder(
@@ -457,10 +500,25 @@ export interface ReturnRequest {
   windowExpiresAt: string;
   rmaCode: string;
   notes?: string;
+  evidence?: Array<{
+    id: string;
+    note: string;
+    createdAt: string;
+    actorId: string;
+    attachmentUrl?: string;
+    attachmentName?: string;
+  }>;
   createdAt: string;
 }
 
-export async function apiOpenReturn(input: { orderId: string; reason: string }) {
+export async function apiOpenReturn(input: {
+  orderId: string;
+  reason: string;
+  evidenceNote?: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  mimeType?: string;
+}) {
   return platformFetch<ReturnRequest>('/platform/returns', {
     method: 'POST',
     body: JSON.stringify(input),

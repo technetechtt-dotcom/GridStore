@@ -85,6 +85,13 @@ paymentsRouter.get('/orders/:orderId', async (req: AuthenticatedRequest, res) =>
   res.json(payment);
 });
 
+paymentsRouter.get('/', async (req: AuthenticatedRequest, res) => {
+  const { listPayments } = await import('../lib/payments.js');
+  const isStaff = ['admin', 'moderator'].includes(req.user!.role);
+  const rows = await listPayments();
+  res.json(isStaff ? rows : rows.filter((payment) => payment.userId === req.user!.id));
+});
+
 paymentsRouter.post('/orders/:orderId/refund', async (req: AuthenticatedRequest, res) => {
   const parsed = z
     .object({ amountCents: z.number().int().positive().optional() })

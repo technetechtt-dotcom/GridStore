@@ -69,6 +69,26 @@ export async function addShippingEvent(input: {
     targetId: input.orderId,
     detail: { status: event.status, trackingNumber: event.trackingNumber },
   });
+
+  const { notifyUser } = await import('./commerceNotify.js');
+  await notifyUser({
+    userId: order.userId,
+    title: `Shipment ${event.status}`,
+    description: event.trackingNumber
+      ? `Order ${order.id}: ${event.status} · tracking ${event.trackingNumber}`
+      : `Order ${order.id}: ${event.status}`,
+    emailSubject: `Shipping update — ${order.id}`,
+    emailBody: [
+      `Order: ${order.id}`,
+      `Status: ${event.status}`,
+      event.carrier ? `Carrier: ${event.carrier}` : null,
+      event.trackingNumber ? `Tracking: ${event.trackingNumber}` : null,
+      event.location ? `Location: ${event.location}` : null,
+      event.note ? `Note: ${event.note}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  });
   return event;
 }
 
@@ -93,6 +113,30 @@ export async function listShippingEvents(orderId: string) {
   return memoryEvents
     .filter((event) => event.orderId === orderId)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function findOrderIdByTrackingNumber(trackingNumber: string) {
+  const needle = trackingNumber.trim();
+  if (!needle) return undefined;
+
+  if (hasDatabase()) {
+    const db = requireSql();
+    const eventRows = (await db`
+      SELECT order_id FROM gridstore_shipping_events
+      WHERE tracking_number = ${needle}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `) as Array<{ order_id: string }>;
+    if (eventRows[0]) return eventRows[0].order_id;
+    const orderRows = (await db`
+      SELECT id FROM gridstore_orders WHERE tracking_number = ${needle} LIMIT 1
+    `) as Array<{ id: string }>;
+    if (orderRows[0]) return orderRows[0].id;
+  }
+
+  const fromEvent = memoryEvents.find((event) => event.trackingNumber === needle);
+  if (fromEvent) return fromEvent.orderId;
+  return platformStore.listAllOrders().find((order) => order.trackingNumber === needle)?.id;
 }
 
 export function resetShippingForTests() {

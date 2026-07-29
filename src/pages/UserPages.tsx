@@ -364,7 +364,15 @@ export function OrderHistory() {
                           onClick={() => {
                             const reason = window.prompt('Why are you returning this order?');
                             if (!reason?.trim()) return;
-                            void apiOpenReturn({ orderId: order.id, reason: reason.trim() })
+                            const attachmentUrl = window.prompt(
+                              'Optional evidence URL (https image/PDF), or leave blank:'
+                            );
+                            void apiOpenReturn({
+                              orderId: order.id,
+                              reason: reason.trim(),
+                              evidenceNote: reason.trim(),
+                              attachmentUrl: attachmentUrl?.trim() || undefined,
+                            })
                               .then((rma) =>
                                 toast.success(`Return opened — RMA ${rma.rmaCode}`)
                               )

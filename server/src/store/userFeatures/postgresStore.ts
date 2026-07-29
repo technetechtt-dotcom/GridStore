@@ -121,6 +121,23 @@ export class PostgresUserFeaturesStore implements UserFeaturesStore {
     return rows.map(mapNotificationRow);
   }
 
+  async pushNotification(userId: string, input: { title: string; description: string }) {
+    await this.ensureSeeded();
+    const db = requireSql();
+    const item: NotificationItem = {
+      id: createId('notif'),
+      title: input.title.trim(),
+      description: input.description.trim(),
+      createdAt: nowLabel(),
+      unread: true,
+    };
+    await db`
+      INSERT INTO gridstore_notifications (id, user_id, title, description, created_at, unread)
+      VALUES (${item.id}, ${userId}, ${item.title}, ${item.description}, ${item.createdAt}, ${item.unread})
+    `;
+    return item;
+  }
+
   async markNotificationRead(userId: string, notificationId: string) {
     await this.ensureSeeded();
     const db = requireSql();

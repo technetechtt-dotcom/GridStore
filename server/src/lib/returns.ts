@@ -12,6 +12,16 @@ export type ReturnStatus =
   | 'refunded'
   | 'closed';
 
+export interface ReturnEvidence {
+  id: string;
+  note: string;
+  createdAt: string;
+  actorId: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  mimeType?: string;
+}
+
 export interface ReturnRequest {
   id: string;
   orderId: string;
@@ -21,6 +31,7 @@ export interface ReturnRequest {
   windowExpiresAt: string;
   rmaCode: string;
   notes?: string;
+  evidence: ReturnEvidence[];
   createdAt: string;
   updatedAt: string;
 }
@@ -28,7 +39,7 @@ export interface ReturnRequest {
 const memoryReturns: ReturnRequest[] = [];
 const RETURN_WINDOW_DAYS = Number(process.env.RETURN_WINDOW_DAYS ?? '14');
 
-function rowToReturn(row: Record<string, unknown>): ReturnRequest {
+function rowToReturn(row: Record<string, unknown>, evidence: ReturnEvidence[] = []): ReturnRequest {
   return {
     id: String(row.id),
     orderId: String(row.order_id),
@@ -38,9 +49,32 @@ function rowToReturn(row: Record<string, unknown>): ReturnRequest {
     windowExpiresAt: String(row.window_expires_at),
     rmaCode: String(row.rma_code),
     notes: row.notes ? String(row.notes) : undefined,
+    evidence,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
+}
+
+function mapEvidenceRow(row: Record<string, unknown>): ReturnEvidence {
+  return {
+    id: String(row.id),
+    note: String(row.note),
+    createdAt: String(row.created_at),
+    actorId: String(row.actor_id),
+    attachmentUrl: row.attachment_url ? String(row.attachment_url) : undefined,
+    attachmentName: row.attachment_name ? String(row.attachment_name) : undefined,
+    mimeType: row.mime_type ? String(row.mime_type) : undefined,
+  };
+}
+
+async function loadReturnEvidence(returnId: string): Promise<ReturnEvidence[]> {
+  if (!hasDatabase()) {
+    return memoryReturns.find((item) => item.id === returnId)?.evidence ?? [];
+  }
+  const rows = (await requireSql()`
+    SELECT * FROM gridstore_return_evidence WHERE return_id = ${returnId} ORDER BY created_at ASC
+  `) as Record<string, unknown>[];
+  return rows.map(mapEvidenceRow);
 }
 
 async function persistReturn(item: ReturnRequest) {
@@ -62,13 +96,16 @@ async function persistReturn(item: ReturnRequest) {
 
 export async function getReturn(id: string) {
   const memory = memoryReturns.find((item) => item.id === id);
-  if (memory) return memory;
+  if (memory) {
+    if (!memory.evidence) memory.evidence = [];
+    return memory;
+  }
   if (!hasDatabase()) return undefined;
   const rows = (await requireSql()`
     SELECT * FROM gridstore_returns WHERE id = ${id} LIMIT 1
   `) as Record<string, unknown>[];
   if (!rows[0]) return undefined;
-  const item = rowToReturn(rows[0]);
+  const item = rowToReturn(rows[0], await loadReturnEvidence(id));
   memoryReturns.push(item);
   return item;
 }
@@ -90,7 +127,9 @@ export async function listReturns(filter?: { orderId?: string; buyerId?: string 
         SELECT * FROM gridstore_returns ORDER BY created_at DESC LIMIT 200
       `) as Record<string, unknown>[];
     }
-    return rows.map(rowToReturn);
+    return Promise.all(
+      rows.map(async (row) => rowToReturn(row, await loadReturnEvidence(String(row.id))))
+    );
   }
   return memoryReturns.filter((item) => {
     if (filter?.orderId && item.orderId !== filter.orderId) return false;
@@ -103,6 +142,10 @@ export async function openReturnRequest(input: {
   orderId: string;
   buyerId: string;
   reason: string;
+  evidenceNote?: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  mimeType?: string;
 }) {
   const order = platformStore.listAllOrders().find((item) => item.id === input.orderId);
   if (!order) throw new Error('Order not found');
@@ -140,16 +183,94 @@ export async function openReturnRequest(input: {
     status: 'requested',
     windowExpiresAt,
     rmaCode: `RMA-${Date.now().toString().slice(-8)}`,
+    evidence: [],
     createdAt: now,
     updatedAt: now,
   };
   memoryReturns.unshift(item);
   await persistReturn(item);
+
+  if (input.evidenceNote?.trim() || input.attachmentUrl?.trim()) {
+    await addReturnEvidence({
+      returnId: item.id,
+      actorId: input.buyerId,
+      note: input.evidenceNote?.trim() || input.reason.trim(),
+      attachmentUrl: input.attachmentUrl,
+      attachmentName: input.attachmentName,
+      mimeType: input.mimeType,
+    });
+  }
+
   recordSecurityEvent('return.opened', {
     actorId: input.buyerId,
     targetId: item.id,
     detail: { orderId: input.orderId, rmaCode: item.rmaCode },
   });
+  const { notifyUser } = await import('./commerceNotify.js');
+  await notifyUser({
+    userId: input.buyerId,
+    title: 'Return request opened',
+    description: `RMA ${item.rmaCode} for order ${input.orderId} is awaiting review.`,
+    emailSubject: `Return opened — ${item.rmaCode}`,
+    emailBody: `Your return request for order ${input.orderId} was opened.\nRMA code: ${item.rmaCode}\nReason: ${item.reason}\nWindow expires: ${item.windowExpiresAt}`,
+  });
+  return (await getReturn(item.id)) ?? item;
+}
+
+export async function addReturnEvidence(input: {
+  returnId: string;
+  actorId: string;
+  note: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  mimeType?: string;
+}) {
+  const item = await getReturn(input.returnId);
+  if (!item) throw new Error('Return not found');
+  if (['rejected', 'closed', 'refunded'].includes(item.status)) {
+    throw new Error('Cannot add evidence to a closed return');
+  }
+  const actor = platformStore.getUserById(input.actorId);
+  const isStaff = actor && ['admin', 'moderator'].includes(actor.role);
+  if (item.buyerId !== input.actorId && !isStaff) {
+    throw new Error('Not allowed to add evidence to this return');
+  }
+  if (input.attachmentUrl) {
+    try {
+      const url = new URL(input.attachmentUrl);
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        throw new Error('Attachment URL must be http(s)');
+      }
+    } catch {
+      throw new Error('Invalid attachment URL');
+    }
+  }
+
+  const evidence: ReturnEvidence = {
+    id: createId('revid'),
+    note: input.note.trim(),
+    createdAt: new Date().toISOString(),
+    actorId: input.actorId,
+    attachmentUrl: input.attachmentUrl?.trim(),
+    attachmentName: input.attachmentName?.trim(),
+    mimeType: input.mimeType?.trim(),
+  };
+  item.evidence = item.evidence ?? [];
+  item.evidence.push(evidence);
+  item.updatedAt = evidence.createdAt;
+  await persistReturn(item);
+
+  if (hasDatabase()) {
+    const db = requireSql();
+    await db`
+      INSERT INTO gridstore_return_evidence (
+        id, return_id, actor_id, note, created_at, attachment_url, attachment_name, mime_type
+      ) VALUES (
+        ${evidence.id}, ${item.id}, ${evidence.actorId}, ${evidence.note}, ${evidence.createdAt},
+        ${evidence.attachmentUrl ?? null}, ${evidence.attachmentName ?? null}, ${evidence.mimeType ?? null}
+      )
+    `;
+  }
   return item;
 }
 
@@ -214,6 +335,16 @@ export async function transitionReturn(input: {
     actorId: input.actorId,
     targetId: item.id,
     detail: { action: input.action, status: nextStatus },
+  });
+  const { notifyUser } = await import('./commerceNotify.js');
+  await notifyUser({
+    userId: item.buyerId,
+    title: `Return ${nextStatus.replace(/_/g, ' ')}`,
+    description: `RMA ${item.rmaCode} is now ${nextStatus}.`,
+    emailSubject: `Return update — ${item.rmaCode}`,
+    emailBody: `Your return ${item.rmaCode} for order ${item.orderId} is now ${nextStatus}.${
+      input.notes?.trim() ? `\nNotes: ${input.notes.trim()}` : ''
+    }`,
   });
   return item;
 }

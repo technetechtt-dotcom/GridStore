@@ -1,9 +1,10 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import { addDisputeEvidence, listDisputes, openDispute, resolveDispute } from '../lib/disputes.js';
 import { listPayouts, markPayoutPaid, scheduleSellerPayout, sellerPayoutSummary } from '../lib/settlement.js';
-import { addShippingEvent, listShippingEvents } from '../lib/shipping.js';
+import { addShippingEvent, findOrderIdByTrackingNumber, listShippingEvents } from '../lib/shipping.js';
 import { collectMonitoringSnapshot } from '../lib/monitoring.js';
 import { processJobQueue, enqueueRecurringJobs } from '../jobs/worker.js';
 import { listJobs } from '../jobs/queue.js';
@@ -13,9 +14,32 @@ import {
   SA_BANK_OPTIONS,
   upsertSellerPayoutProfile,
 } from '../lib/sellerPayoutProfile.js';
-import { listReturns, openReturnRequest, transitionReturn } from '../lib/returns.js';
+import { addReturnEvidence, listReturns, openReturnRequest, transitionReturn } from '../lib/returns.js';
+import { platformStore } from '../store/index.js';
 
 export const platformOpsRouter = Router();
+
+const platformMutatingLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many platform requests' },
+});
+
+platformOpsRouter.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    next();
+    return;
+  }
+  platformMutatingLimiter(req, res, next);
+});
+
+const attachmentFields = {
+  attachmentUrl: z.string().url().max(2000).optional(),
+  attachmentName: z.string().min(1).max(260).optional(),
+  mimeType: z.string().min(3).max(120).optional(),
+};
 
 platformOpsRouter.post('/disputes', requireAuth, async (req: AuthenticatedRequest, res) => {
   const parsed = z
@@ -46,7 +70,9 @@ platformOpsRouter.get('/disputes', requireAuth, async (req: AuthenticatedRequest
 });
 
 platformOpsRouter.post('/disputes/:id/evidence', requireAuth, async (req: AuthenticatedRequest, res) => {
-  const parsed = z.object({ note: z.string().min(3).max(2000) }).safeParse(req.body);
+  const parsed = z
+    .object({ note: z.string().min(3).max(2000), ...attachmentFields })
+    .safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid evidence payload' });
     return;
@@ -57,6 +83,9 @@ platformOpsRouter.post('/disputes/:id/evidence', requireAuth, async (req: Authen
         disputeId: req.params.id,
         actorId: req.user!.id,
         note: parsed.data.note,
+        attachmentUrl: parsed.data.attachmentUrl,
+        attachmentName: parsed.data.attachmentName,
+        mimeType: parsed.data.mimeType,
       })
     );
   } catch (error) {
@@ -178,7 +207,51 @@ platformOpsRouter.post('/orders/:orderId/shipping-events', requireAuth, async (r
 });
 
 platformOpsRouter.get('/orders/:orderId/shipping-events', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const order = platformStore.listAllOrders().find((item) => item.id === req.params.orderId);
+  if (!order) {
+    res.status(404).json({ error: 'Order not found' });
+    return;
+  }
+  const isStaff = ['admin', 'moderator'].includes(req.user!.role);
+  const isBuyer = order.userId === req.user!.id;
+  const isSeller = order.lines.some((line) => line.sellerId === req.user!.id);
+  if (!isStaff && !isBuyer && !isSeller) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
   res.json(await listShippingEvents(req.params.orderId));
+});
+
+platformOpsRouter.get('/shipping/track', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const trackingNumber = typeof req.query.trackingNumber === 'string' ? req.query.trackingNumber.trim() : '';
+  if (!trackingNumber) {
+    res.status(400).json({ error: 'trackingNumber is required' });
+    return;
+  }
+  const orderId = await findOrderIdByTrackingNumber(trackingNumber);
+  if (!orderId) {
+    res.status(404).json({ error: 'Tracking number not found' });
+    return;
+  }
+  const order = platformStore.listAllOrders().find((item) => item.id === orderId);
+  if (!order) {
+    res.status(404).json({ error: 'Order not found' });
+    return;
+  }
+  const isStaff = ['admin', 'moderator'].includes(req.user!.role);
+  const isBuyer = order.userId === req.user!.id;
+  const isSeller = order.lines.some((line) => line.sellerId === req.user!.id);
+  if (!isStaff && !isBuyer && !isSeller) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  res.json({
+    orderId: order.id,
+    status: order.status,
+    trackingNumber: order.trackingNumber ?? trackingNumber,
+    deliveryAddress: order.deliveryAddress,
+    events: await listShippingEvents(order.id),
+  });
 });
 
 platformOpsRouter.get('/monitoring', requireAuth, async (req: AuthenticatedRequest, res) => {
@@ -263,7 +336,12 @@ platformOpsRouter.put('/payout-profile', requireAuth, async (req: AuthenticatedR
 
 platformOpsRouter.post('/returns', requireAuth, async (req: AuthenticatedRequest, res) => {
   const parsed = z
-    .object({ orderId: z.string().min(1), reason: z.string().min(8).max(2000) })
+    .object({
+      orderId: z.string().min(1),
+      reason: z.string().min(8).max(2000),
+      evidenceNote: z.string().min(3).max(2000).optional(),
+      ...attachmentFields,
+    })
     .safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid return payload' });
@@ -274,6 +352,10 @@ platformOpsRouter.post('/returns', requireAuth, async (req: AuthenticatedRequest
       orderId: parsed.data.orderId,
       buyerId: req.user!.id,
       reason: parsed.data.reason,
+      evidenceNote: parsed.data.evidenceNote,
+      attachmentUrl: parsed.data.attachmentUrl,
+      attachmentName: parsed.data.attachmentName,
+      mimeType: parsed.data.mimeType,
     });
     res.status(201).json(item);
   } catch (error) {
@@ -292,6 +374,30 @@ platformOpsRouter.get('/returns', requireAuth, async (req: AuthenticatedRequest,
     return;
   }
   res.json(await listReturns({ buyerId: req.user!.id }));
+});
+
+platformOpsRouter.post('/returns/:id/evidence', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const parsed = z
+    .object({ note: z.string().min(3).max(2000), ...attachmentFields })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid evidence payload' });
+    return;
+  }
+  try {
+    res.json(
+      await addReturnEvidence({
+        returnId: req.params.id,
+        actorId: req.user!.id,
+        note: parsed.data.note,
+        attachmentUrl: parsed.data.attachmentUrl,
+        attachmentName: parsed.data.attachmentName,
+        mimeType: parsed.data.mimeType,
+      })
+    );
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unable to add evidence' });
+  }
 });
 
 platformOpsRouter.post('/returns/:id/transitions', requireAuth, async (req: AuthenticatedRequest, res) => {
