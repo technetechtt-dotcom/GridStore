@@ -6,7 +6,8 @@ export type JobType =
   | 'payment.reconcile'
   | 'reservation.expire'
   | 'email.deliver'
-  | 'monitoring.scan';
+  | 'monitoring.scan'
+  | 'payout.process';
 
 export interface BackgroundJob {
   id: string;

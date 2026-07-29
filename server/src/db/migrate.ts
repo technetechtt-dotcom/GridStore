@@ -592,6 +592,31 @@ const VERSIONED_MIGRATIONS: Array<{
       await db`ALTER TABLE gridstore_users DROP COLUMN IF EXISTS oauth_provider`;
     },
   },
+  {
+    id: '20260729_email_and_payout_transfers',
+    async up(db) {
+      await db`
+        CREATE TABLE IF NOT EXISTS gridstore_email_outbox (
+          id TEXT PRIMARY KEY,
+          to_address TEXT NOT NULL,
+          subject TEXT NOT NULL,
+          body TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'queued',
+          provider TEXT,
+          provider_message_id TEXT,
+          error TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          sent_at TIMESTAMPTZ
+        )
+      `;
+      await db`CREATE INDEX IF NOT EXISTS idx_gridstore_email_outbox_status ON gridstore_email_outbox(status, created_at)`;
+      await db`ALTER TABLE gridstore_payouts ADD COLUMN IF NOT EXISTS transfer_reference TEXT`;
+    },
+    async down(db) {
+      await db`ALTER TABLE gridstore_payouts DROP COLUMN IF EXISTS transfer_reference`;
+      await db`DROP TABLE IF EXISTS gridstore_email_outbox`;
+    },
+  },
 ];
 
 async function applyVersionedMigrations(db: Sql) {

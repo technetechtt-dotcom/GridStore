@@ -1,7 +1,8 @@
-import { listEmailOutbox } from '../lib/authSecurity.js';
-import { listPayments, paymentProvider, verifyWebhookSignature } from '../lib/payments.js';
+import { drainEmailOutbox } from '../lib/email.js';
+import { listPayments, paymentProvider } from '../lib/payments.js';
 import { verifyPaystackTransaction, paystackConfigured } from '../lib/paystack.js';
 import { collectMonitoringSnapshot } from '../lib/monitoring.js';
+import { processDuePayouts, scheduleEligibleSellerPayouts } from '../lib/settlement.js';
 import { tradeStore } from '../store/trade/index.js';
 import { platformStore } from '../store/index.js';
 import { logger, recordSecurityEvent } from '../lib/security.js';
@@ -12,7 +13,6 @@ async function handleAuctionClose() {
 }
 
 async function handleReservationExpire() {
-  // Touch order inventory paths that expire held reservations.
   for (const order of platformStore.listAllOrders()) {
     if (order.status === 'pending_payment') {
       platformStore.getOrder(order.userId, order.id);
@@ -53,8 +53,15 @@ async function handlePaymentReconcile() {
 }
 
 async function handleEmailDeliver() {
-  const outbox = listEmailOutbox();
-  logger.info('Email outbox drain', { queued: outbox.length });
+  const result = await drainEmailOutbox(25);
+  logger.info('Email outbox drain', result);
+}
+
+async function handlePayoutProcess() {
+  const holdDays = Number(process.env.PAYOUT_HOLD_DAYS ?? '7');
+  const scheduled = await scheduleEligibleSellerPayouts(holdDays);
+  const paid = await processDuePayouts('system');
+  logger.info('Payout processing', { scheduled: scheduled.length, paid: paid.length });
 }
 
 async function handleMonitoringScan() {
@@ -79,6 +86,9 @@ async function runJob(job: BackgroundJob) {
       break;
     case 'email.deliver':
       await handleEmailDeliver();
+      break;
+    case 'payout.process':
+      await handlePayoutProcess();
       break;
     case 'monitoring.scan':
       await handleMonitoringScan();
@@ -123,6 +133,7 @@ export async function enqueueRecurringJobs() {
   await enqueueJob('reservation.expire', {});
   await enqueueJob('payment.reconcile', {});
   await enqueueJob('email.deliver', {});
+  await enqueueJob('payout.process', {});
   await enqueueJob('monitoring.scan', {});
 }
 

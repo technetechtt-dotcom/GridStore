@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { hasDatabase, requireSql } from '../db/client.js';
 import { createId } from './ids.js';
 import { logger, recordSecurityEvent } from './security.js';
+import { resetEmailOutboxForTests } from './email.js';
 
 export type AuthTokenType = 'email_verify' | 'password_reset' | 'mobile_verify';
 
@@ -37,6 +38,11 @@ const sessions = new Map<string, SessionRecord>();
 const authTokens = new Map<string, AuthTokenRecord>();
 const loginAttempts = new Map<string, LoginAttemptState>();
 const outbox: Array<{ to: string; subject: string; body: string; sentAt: string }> = [];
+
+/** @deprecated Prefer queueTransactionalEmail from email.ts — kept for test compatibility. */
+function pushLegacyOutbox(entry: { to: string; subject: string; body: string; sentAt: string }) {
+  outbox.push(entry);
+}
 
 const COMMON_COMPROMISED = new Set(
   [
@@ -411,21 +417,20 @@ export async function sendTransactionalEmail(input: {
   subject: string;
   body: string;
 }) {
-  const entry = { ...input, sentAt: new Date().toISOString() };
-  outbox.push(entry);
-  logger.info('Transactional email queued', { to: input.to, subject: input.subject });
-  if (process.env.TRANSACTIONAL_EMAIL_WEBHOOK) {
-    try {
-      await fetch(process.env.TRANSACTIONAL_EMAIL_WEBHOOK, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry),
-      });
-    } catch {
-      logger.warn('Transactional email webhook failed', { to: input.to });
-    }
-  }
-  return entry;
+  const { queueTransactionalEmail } = await import('./email.js');
+  const entry = await queueTransactionalEmail(input);
+  pushLegacyOutbox({
+    to: entry.to,
+    subject: entry.subject,
+    body: entry.body,
+    sentAt: entry.sentAt ?? entry.createdAt,
+  });
+  return {
+    to: entry.to,
+    subject: entry.subject,
+    body: entry.body,
+    sentAt: entry.sentAt ?? entry.createdAt,
+  };
 }
 
 export function getAuthOutbox() {
@@ -442,6 +447,7 @@ export function clearAuthOutboxForTests() {
   sessions.clear();
   authTokens.clear();
   loginAttempts.clear();
+  resetEmailOutboxForTests();
 }
 
 export function resetAuthSecurityStateForTests() {

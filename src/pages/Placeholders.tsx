@@ -14,7 +14,7 @@ import {
   getRentals,
   getServices,
 } from '../services/mockApi';
-import { apiGetListing, isPlatformApiAvailable } from '../services/platformApi';
+import { apiGetListing, apiGetSellerPayoutSummary, isPlatformApiAvailable } from '../services/platformApi';
 import { apiGetAuctionDetail, apiGetAuctions } from '../services/tradeApi';
 import type { AuctionBid, HaggleOffer, Job, Product, Rental, SellerListing, Service } from '../types';
 
@@ -1198,6 +1198,11 @@ export function SellerDashboard() {
   } = useApp();
   const [draftSeed, setDraftSeed] = useState('');
   const [incomingOffers, setIncomingOffers] = useState<HaggleOffer[]>([]);
+  const [livePayout, setLivePayout] = useState<{
+    available: number;
+    pending: number;
+    nextPayoutDate: string;
+  } | null>(null);
   const [form, setForm] = useState({
     title: '',
     category: 'Electronics',
@@ -1217,6 +1222,22 @@ export function SellerDashboard() {
     void loadIncomingOffers().then(setIncomingOffers).catch(() => setIncomingOffers([]));
   }, [loadIncomingOffers, sellerListings]);
 
+  useEffect(() => {
+    if (!isPlatformApiAvailable()) return;
+    void apiGetSellerPayoutSummary()
+      .then((summary) => {
+        setLivePayout({
+          available: summary.availableCents / 100,
+          pending: summary.pendingCents / 100,
+          nextPayoutDate: summary.nextPayoutDate
+            ? new Date(summary.nextPayoutDate).toLocaleDateString('en-ZA')
+            : 'Not scheduled',
+        });
+      })
+      .catch(() => setLivePayout(null));
+  }, [orders, sellerListings]);
+
+  const displayPayout = livePayout ?? payoutSummary;
   const sellerOrders = orders.filter((order) =>
     order.lines.some((line) => sellerListings.some((listing) => listing.id === line.productId))
   );
@@ -1286,10 +1307,11 @@ export function SellerDashboard() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">
-              R {Math.round(payoutSummary.available).toLocaleString('en-ZA')}
+              R {Math.round(displayPayout.available).toLocaleString('en-ZA')}
             </p>
             <p className="text-sm text-muted-foreground">
-              Pending R {Math.round(payoutSummary.pending).toLocaleString('en-ZA')} - next {payoutSummary.nextPayoutDate}
+              Pending R {Math.round(displayPayout.pending).toLocaleString('en-ZA')} - next{' '}
+              {displayPayout.nextPayoutDate}
             </p>
           </CardContent>
         </Card>

@@ -287,8 +287,23 @@ export function apiResolvePlatformDispute(
   });
 }
 
-export function apiGetPlatformPayouts(sellerId?: string) {
+export async function apiGetPlatformPayouts(sellerId?: string) {
   return platformFetch<PlatformPayoutRow[]>('/platform/payouts', {
+    query: sellerId ? { sellerId } : undefined,
+  });
+}
+
+export interface SellerPayoutSummary {
+  sellerId: string;
+  availableCents: number;
+  pendingCents: number;
+  paidCents: number;
+  nextPayoutDate: string | null;
+  payouts: PlatformPayoutRow[];
+}
+
+export async function apiGetSellerPayoutSummary(sellerId?: string) {
+  return platformFetch<SellerPayoutSummary>('/platform/payouts/summary', {
     query: sellerId ? { sellerId } : undefined,
   });
 }

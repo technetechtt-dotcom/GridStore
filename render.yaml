@@ -38,6 +38,12 @@ services:
         generateValue: true
       - key: TRANSACTIONAL_EMAIL_WEBHOOK
         sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: PAYOUT_HOLD_DAYS
+        value: "7"
       - key: PAYMENT_SANDBOX_AUTO_CAPTURE
         value: "false"
       - key: CORS_ORIGIN

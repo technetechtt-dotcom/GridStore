@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import { addDisputeEvidence, listDisputes, openDispute, resolveDispute } from '../lib/disputes.js';
-import { listPayouts, markPayoutPaid, scheduleSellerPayout } from '../lib/settlement.js';
+import { listPayouts, markPayoutPaid, scheduleSellerPayout, sellerPayoutSummary } from '../lib/settlement.js';
 import { addShippingEvent, listShippingEvents } from '../lib/shipping.js';
 import { collectMonitoringSnapshot } from '../lib/monitoring.js';
 import { processJobQueue, enqueueRecurringJobs } from '../jobs/worker.js';
@@ -125,6 +125,22 @@ platformOpsRouter.get('/payouts', requireAuth, async (req: AuthenticatedRequest,
     return;
   }
   res.json(await listPayouts(sellerId));
+});
+
+platformOpsRouter.get('/payouts/summary', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const sellerId =
+    ['admin', 'moderator'].includes(req.user!.role) && typeof req.query.sellerId === 'string'
+      ? req.query.sellerId
+      : req.user!.id;
+  if (req.user!.role === 'buyer' && sellerId !== req.user!.id) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  if (!['admin', 'moderator', 'seller'].includes(req.user!.role) && sellerId !== req.user!.id) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  res.json(await sellerPayoutSummary(sellerId));
 });
 
 platformOpsRouter.post('/orders/:orderId/shipping-events', requireAuth, async (req: AuthenticatedRequest, res) => {

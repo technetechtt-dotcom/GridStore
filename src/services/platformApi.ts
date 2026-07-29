@@ -406,6 +406,18 @@ export async function apiTransitionOrder(
   });
 }
 
+export interface SellerPayoutSummary {
+  sellerId: string;
+  availableCents: number;
+  pendingCents: number;
+  paidCents: number;
+  nextPayoutDate: string | null;
+}
+
+export async function apiGetSellerPayoutSummary() {
+  return platformFetch<SellerPayoutSummary>('/platform/payouts/summary');
+}
+
 function normalizeListing(row: Record<string, unknown>): SellerListing {
   return {
     id: String(row.id),

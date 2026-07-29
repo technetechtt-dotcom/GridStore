@@ -87,6 +87,18 @@ jobs:
           DATABASE_URL: postgresql://gridstore:gridstore@localhost:5432/gridstore_test
         run: npm run migrate:smoke --prefix server
 
+      - name: Postgres concurrency tests
+        env:
+          DATABASE_URL: postgresql://gridstore:gridstore@localhost:5432/gridstore_test
+          RUN_PG_INTEGRATION: "true"
+          VITEST: "false"
+          NODE_ENV: test
+          JWT_SECRET: ci-test-secret-not-for-prod
+          PAYMENT_WEBHOOK_SECRET: ci-webhook-secret
+          ENABLE_DEMO_DATA: "true"
+        run: npx vitest run src/postgres.integration.test.ts
+        working-directory: server
+
   dependency-review:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

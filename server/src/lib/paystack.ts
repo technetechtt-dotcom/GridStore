@@ -109,6 +109,52 @@ export async function refundPaystackTransaction(input: {
   });
 }
 
+export async function createPaystackTransferRecipient(input: {
+  name: string;
+  accountNumber: string;
+  bankCode: string;
+  currency?: string;
+}) {
+  return paystackRequest<{
+    recipient_code: string;
+    type: string;
+    name: string;
+  }>('/transferrecipient', {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'nuban',
+      name: input.name,
+      account_number: input.accountNumber,
+      bank_code: input.bankCode,
+      currency: input.currency ?? 'ZAR',
+    }),
+  });
+}
+
+export async function initiatePaystackTransfer(input: {
+  amountCents: number;
+  recipientCode: string;
+  reference: string;
+  reason?: string;
+}) {
+  return paystackRequest<{
+    transfer_code: string;
+    reference: string;
+    status: string;
+    amount: number;
+  }>('/transfer', {
+    method: 'POST',
+    body: JSON.stringify({
+      source: 'balance',
+      amount: input.amountCents,
+      recipient: input.recipientCode,
+      reference: input.reference,
+      reason: input.reason ?? 'GridStore seller payout',
+      currency: 'ZAR',
+    }),
+  });
+}
+
 export function mapPaystackWebhookEvent(payload: Record<string, unknown>): {
   providerEventId: string;
   eventType: 'payment.authorized' | 'payment.captured' | 'payment.failed' | 'payment.cancelled' | 'payment.refunded';

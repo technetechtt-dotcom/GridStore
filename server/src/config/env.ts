@@ -57,7 +57,10 @@ export const env = {
   corsOrigin: process.env.CORS_ORIGIN ?? (isProduction ? '' : 'http://localhost:5173'),
   jwtSecret: process.env.JWT_SECRET ?? DEFAULT_DEV_JWT,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '15m',
-  databaseUrl: isTest ? '' : (process.env.DATABASE_URL ?? ''),
+  databaseUrl:
+    isTest && process.env.RUN_PG_INTEGRATION !== 'true'
+      ? ''
+      : (process.env.DATABASE_URL ?? ''),
   publicWebUrl: process.env.PUBLIC_WEB_URL ?? renderDefaults?.web ?? 'http://localhost:5173',
   publicAdminUrl: process.env.PUBLIC_ADMIN_URL ?? renderDefaults?.admin ?? 'http://localhost:5174',
   enableDemoData,
