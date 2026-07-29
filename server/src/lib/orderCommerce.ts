@@ -41,18 +41,28 @@ export function isPurchasableListing(listing: SellerListing): boolean {
   return true;
 }
 
-export function assertPurchasableListing(listing: SellerListing | undefined, productId: string): SellerListing {
+export function assertPurchasableListing(
+  listing: SellerListing | undefined,
+  productId: string,
+  options?: { allowEndedAuctionWin?: boolean }
+): SellerListing {
   if (!listing) {
     throw new Error(`Listing not found: ${productId}`);
   }
-  if (listing.status === 'paused') {
+  if (listing.status === 'paused' && !options?.allowEndedAuctionWin) {
     throw new Error(`Listing is paused: ${listing.title}`);
   }
   if (listing.status === 'flagged') {
     throw new Error(`Listing is flagged and unavailable: ${listing.title}`);
   }
-  if (listing.status === 'draft' || listing.status !== 'active') {
+  if (listing.status === 'draft' || (listing.status !== 'active' && !options?.allowEndedAuctionWin)) {
     throw new Error(`Listing is not available for purchase: ${listing.title}`);
+  }
+  if (options?.allowEndedAuctionWin) {
+    if (listing.saleMode !== 'auction' || listing.auctionStatus !== 'ended') {
+      throw new Error(`Listing is not an ended auction win: ${listing.title}`);
+    }
+    return listing;
   }
   if (listing.saleMode === 'auction' || listing.auctionStatus === 'live') {
     throw new Error(`Auction listings cannot be purchased through checkout: ${listing.title}`);
@@ -62,7 +72,8 @@ export function assertPurchasableListing(listing: SellerListing | undefined, pro
 
 export function buildAuthoritativeLines(
   inputs: CheckoutLineInput[],
-  resolveListing: (productId: string) => SellerListing | undefined
+  resolveListing: (productId: string) => SellerListing | undefined,
+  options?: { auctionWinAmountRands?: number }
 ): { lines: OrderLine[]; totalCents: number } {
   if (!inputs.length) {
     throw new Error('Cart is empty');
@@ -78,10 +89,16 @@ export function buildAuthoritativeLines(
 
   const lines: OrderLine[] = [];
   let totalCents = 0;
+  const allowEndedAuctionWin = options?.auctionWinAmountRands != null;
 
   for (const [productId, quantity] of merged) {
-    const listing = assertPurchasableListing(resolveListing(productId), productId);
-    const unitPriceCents = randsToCents(listing.price);
+    const listing = assertPurchasableListing(resolveListing(productId), productId, {
+      allowEndedAuctionWin,
+    });
+    const unitPriceCents =
+      options?.auctionWinAmountRands != null
+        ? randsToCents(options.auctionWinAmountRands)
+        : randsToCents(listing.price);
     totalCents += unitPriceCents * quantity;
     lines.push({
       productId: listing.id,

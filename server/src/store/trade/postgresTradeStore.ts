@@ -9,7 +9,6 @@ import {
   assertOfferActionable,
   extendedAuctionEndsAt,
   offerExpiryIso,
-  resolveAuctionClose,
   shouldExtendAuctionForAntiSnipe,
 } from '../../lib/auctionTrade.js';
 import { platformStore } from '../index.js';
@@ -406,6 +405,7 @@ export class PostgresTradeStore implements TradeStore {
 
   async closeExpiredAuctions() {
     await this.ensureSeeded();
+    const { settleClosedAuction } = await import('../../lib/auctionSettlement.js');
     const auctions = platformStore
       .listAllAuctionsAdmin()
       .filter((listing) => listing.auctionStatus === 'live');
@@ -413,10 +413,7 @@ export class PostgresTradeStore implements TradeStore {
     for (const listing of auctions) {
       if (isAuctionLive(listing)) continue;
       const topBid = (await this.listBids(listing.id))[0] ?? null;
-      const result = resolveAuctionClose(listing, topBid);
-      await platformStore.updateListingTradeFields(listing.id, {
-        auctionStatus: result.auctionStatus,
-      });
+      await settleClosedAuction(listing, topBid);
     }
   }
 }

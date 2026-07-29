@@ -33,6 +33,7 @@ import {
 } from '../lib/orderCommerce.js';
 import { matchesQuery } from '../lib/search.js';
 import { assertPasswordPolicy, generateMfaSecret, verifyTotp } from '../lib/security.js';
+import { decryptSecret, encryptSecret } from '../lib/cryptoSecrets.js';
 import { accessTokenTtlSeconds, signAccessToken } from '../lib/tokens.js';
 import type {
   AppUser,
@@ -62,6 +63,9 @@ interface UserRow {
   must_change_password?: boolean;
   mfa_enabled?: boolean;
   mfa_secret?: string | null;
+  email_verified?: boolean;
+  oauth_provider?: string | null;
+  oauth_subject?: string | null;
   created_at?: string;
 }
 
@@ -121,6 +125,12 @@ function rowToStoredUser(row: UserRow): StoredUser {
     mustChangePassword: Boolean(row.must_change_password),
     mfaEnabled: Boolean(row.mfa_enabled),
     mfaSecret: row.mfa_secret ?? null,
+    emailVerified: Boolean(row.email_verified ?? row.verified),
+    oauthProvider:
+      row.oauth_provider === 'google' || row.oauth_provider === 'github'
+        ? row.oauth_provider
+        : undefined,
+    oauthSubject: row.oauth_subject ?? undefined,
   };
 }
 
@@ -492,32 +502,63 @@ export class PostgresPlatformStore implements PlatformStore {
 
   async oauthLogin(
     provider: 'google' | 'github',
-    meta: { ip?: string; userAgent?: string } = {}
+    meta: { ip?: string; userAgent?: string } = {},
+    identity?: { subject: string; email: string; emailVerified: boolean; name?: string }
   ): Promise<AuthUser> {
     await this.ensureSeeded();
-    if (!env.allowSimulatedOauth) {
+    if (!identity && !env.allowSimulatedOauth) {
       throw new Error('Simulated OAuth is disabled');
     }
-    const email = `${provider}.user@gridstore.local`;
-    let user = this.getUserByEmail(email);
+    const subject = identity?.subject ?? `sim-${provider}`;
+    const email = (identity?.email ?? `${provider}.user@gridstore.local`).toLowerCase();
+    const db = requireSql();
+
+    const linkedRows = (await db`
+      SELECT * FROM gridstore_users
+      WHERE oauth_provider = ${provider} AND oauth_subject = ${subject}
+      LIMIT 1
+    `) as Record<string, unknown>[];
+    let user =
+      (linkedRows[0] ? this.cacheUser(rowToStoredUser(linkedRows[0] as UserRow)) : undefined) ??
+      this.getUserByEmail(email);
 
     if (!user) {
       user = this.cacheUser({
         id: createId(provider),
-        name: `${provider === 'google' ? 'Google' : 'GitHub'} User`,
+        name: identity?.name ?? `${provider === 'google' ? 'Google' : 'GitHub'} User`,
         email,
         role: 'buyer',
-        verified: true,
+        verified: Boolean(identity?.emailVerified ?? true),
         passwordHash: '',
         mustChangePassword: false,
         mfaEnabled: false,
-        emailVerified: true,
+        emailVerified: Boolean(identity?.emailVerified ?? true),
+        oauthProvider: provider,
+        oauthSubject: subject,
       });
 
-      const db = requireSql();
       await db`
-        INSERT INTO gridstore_users (id, name, email, role, verified, password_hash, must_change_password, mfa_enabled)
-        VALUES (${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash}, false, false)
+        INSERT INTO gridstore_users (
+          id, name, email, role, verified, password_hash, must_change_password, mfa_enabled,
+          oauth_provider, oauth_subject
+        )
+        VALUES (
+          ${user.id}, ${user.name}, ${user.email}, ${user.role}, ${user.verified}, ${user.passwordHash},
+          false, false, ${provider}, ${subject}
+        )
+      `;
+    } else {
+      user.oauthProvider = provider;
+      user.oauthSubject = subject;
+      if (identity?.emailVerified) {
+        user.emailVerified = true;
+        user.verified = true;
+      }
+      await db`
+        UPDATE gridstore_users
+        SET oauth_provider = ${provider}, oauth_subject = ${subject},
+            verified = ${Boolean(user.verified)}, email_verified = ${Boolean(user.emailVerified)}
+        WHERE id = ${user.id}
       `;
     }
 
@@ -609,12 +650,13 @@ export class PostgresPlatformStore implements PlatformStore {
   async enableMfa(userId: string, secret: string) {
     const user = this.users.get(userId);
     if (!user) throw new Error('User not found');
-    user.mfaSecret = secret;
+    const encrypted = encryptSecret(secret);
+    user.mfaSecret = encrypted;
     user.mfaEnabled = false;
     const db = requireSql();
     await db`
       UPDATE gridstore_users
-      SET mfa_secret = ${secret}, mfa_enabled = false
+      SET mfa_secret = ${encrypted}, mfa_enabled = false
       WHERE id = ${userId}
     `;
     return this.toPublicUser(user);
@@ -623,7 +665,9 @@ export class PostgresPlatformStore implements PlatformStore {
   async confirmMfa(userId: string, token: string) {
     const user = this.users.get(userId);
     if (!user?.mfaSecret) return false;
-    const ok = verifyTotp(user.mfaSecret, token);
+    const secret = decryptSecret(user.mfaSecret);
+    if (!secret) return false;
+    const ok = verifyTotp(secret, token);
     if (!ok) return false;
     user.mfaEnabled = true;
     const db = requireSql();
@@ -638,7 +682,13 @@ export class PostgresPlatformStore implements PlatformStore {
     }
     if (!user.mfaEnabled || !user.mfaSecret) return false;
     if (!token) return false;
-    return verifyTotp(user.mfaSecret, token);
+    try {
+      const secret = decryptSecret(user.mfaSecret);
+      if (!secret) return false;
+      return verifyTotp(secret, token);
+    } catch {
+      return false;
+    }
   }
 
   async createSellerApplication(userId: string, input: SellerApplicationInput) {
@@ -1029,8 +1079,10 @@ export class PostgresPlatformStore implements PlatformStore {
       }
     }
 
-    const { lines, totalCents } = buildAuthoritativeLines(input.lines, (productId) =>
-      this.getListing(productId)
+    const { lines, totalCents } = buildAuthoritativeLines(
+      input.lines,
+      (productId) => this.getListing(productId),
+      input.auctionWinAmount != null ? { auctionWinAmountRands: input.auctionWinAmount } : undefined
     );
 
     for (const line of lines) {
@@ -1467,7 +1519,14 @@ export class PostgresPlatformStore implements PlatformStore {
     patch: Partial<
       Pick<
         SellerListing,
-        'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode' | 'auctionEndsAt'
+        | 'currentBid'
+        | 'bidCount'
+        | 'auctionStatus'
+        | 'haggleEnabled'
+        | 'saleMode'
+        | 'auctionEndsAt'
+        | 'auctionWinnerId'
+        | 'winningOrderId'
       >
     >
   ) {
@@ -1479,6 +1538,8 @@ export class PostgresPlatformStore implements PlatformStore {
     if (patch.haggleEnabled !== undefined) listing.haggleEnabled = patch.haggleEnabled;
     if (patch.saleMode !== undefined) listing.saleMode = patch.saleMode;
     if (patch.auctionEndsAt !== undefined) listing.auctionEndsAt = patch.auctionEndsAt;
+    if (patch.auctionWinnerId !== undefined) listing.auctionWinnerId = patch.auctionWinnerId;
+    if (patch.winningOrderId !== undefined) listing.winningOrderId = patch.winningOrderId;
 
     const db = requireSql();
     await db`
@@ -1489,7 +1550,9 @@ export class PostgresPlatformStore implements PlatformStore {
         auction_status = ${listing.auctionStatus},
         haggle_enabled = ${listing.haggleEnabled},
         sale_mode = ${listing.saleMode},
-        auction_ends_at = ${listing.auctionEndsAt ?? null}
+        auction_ends_at = ${listing.auctionEndsAt ?? null},
+        auction_winner_id = ${listing.auctionWinnerId ?? null},
+        winning_order_id = ${listing.winningOrderId ?? null}
       WHERE id = ${listingId}
     `;
     return listing;

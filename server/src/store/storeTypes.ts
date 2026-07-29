@@ -31,6 +31,8 @@ export interface CreateOrderInput {
   paymentMethod: string;
   lines: Array<{ productId: string; quantity: number }>;
   idempotencyKey?: string;
+  /** Winning bid in rands; enables checkout for an ended auction listing. */
+  auctionWinAmount?: number;
 }
 
 export interface SellerApplicationInput {
@@ -53,7 +55,8 @@ export interface PlatformStore {
   ): Promise<AuthUser>;
   oauthLogin(
     provider: 'google' | 'github',
-    meta?: { ip?: string; userAgent?: string }
+    meta?: { ip?: string; userAgent?: string },
+    identity?: { subject: string; email: string; emailVerified: boolean; name?: string }
   ): Promise<AuthUser>;
   requestPasswordReset(email: string): Promise<void>;
   confirmPasswordReset(token: string, password: string): Promise<AuthUser>;
@@ -114,7 +117,14 @@ export interface PlatformStore {
     patch: Partial<
       Pick<
         SellerListing,
-        'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode' | 'auctionEndsAt'
+        | 'currentBid'
+        | 'bidCount'
+        | 'auctionStatus'
+        | 'haggleEnabled'
+        | 'saleMode'
+        | 'auctionEndsAt'
+        | 'auctionWinnerId'
+        | 'winningOrderId'
       >
     >
   ): Promise<SellerListing>;

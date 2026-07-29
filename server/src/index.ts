@@ -6,6 +6,7 @@ import { initPlatformStore } from './store/index.js';
 import { initUserFeaturesStore } from './store/userFeatures/index.js';
 import { initStoresStore } from './store/stores/index.js';
 import { initTradeStore } from './store/trade/index.js';
+import { startBackgroundWorkers } from './jobs/worker.js';
 
 async function initializeStores(attempt = 1) {
   try {
@@ -14,6 +15,7 @@ async function initializeStores(attempt = 1) {
     await initTradeStore();
     await initStoresStore();
     setStoresReady(true);
+    startBackgroundWorkers();
     logger.info('Platform stores ready', { demoData: env.enableDemoData });
   } catch (error) {
     setStoresReady(false);

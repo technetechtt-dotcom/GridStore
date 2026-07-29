@@ -162,6 +162,8 @@ export interface SellerListing extends Product {
   reservePrice?: number;
   auctionEndsAt?: string;
   auctionStatus: 'none' | 'live' | 'ended';
+  auctionWinnerId?: string;
+  winningOrderId?: string;
   bidCount: number;
 }
 
@@ -200,6 +202,8 @@ export interface StoredUser extends AppUser {
   mobileVerified?: boolean;
   lastLoginAt?: string;
   lastLoginIp?: string;
+  oauthProvider?: 'google' | 'github';
+  oauthSubject?: string;
 }
 
 export interface AdminUserRow extends AppUser {

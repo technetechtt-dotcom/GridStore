@@ -3,6 +3,14 @@ import { env } from '../config/env.js';
 
 type OAuthProvider = 'google' | 'github';
 
+export interface OAuthIdentity {
+  provider: OAuthProvider;
+  subject: string;
+  email: string;
+  emailVerified: boolean;
+  name?: string;
+}
+
 interface OAuthState {
   provider: OAuthProvider;
   codeVerifier: string;
@@ -32,7 +40,6 @@ export function buildOAuthAuthorizationUrl(provider: OAuthProvider) {
     throw new Error(`${provider} OAuth is not configured`);
   }
   if (!env.isProduction && !providerConfigured(provider) && env.allowSimulatedOauth) {
-    // Local/dev without provider credentials still exposes PKCE scaffolding values.
     const state = randomBytes(16).toString('hex');
     const codeVerifier = base64Url(randomBytes(32));
     const nonce = base64Url(randomBytes(16));
@@ -98,10 +105,97 @@ export function buildOAuthAuthorizationUrl(provider: OAuthProvider) {
   };
 }
 
+async function fetchGoogleIdentity(accessToken: string, idToken?: string): Promise<OAuthIdentity> {
+  if (idToken) {
+    const parts = idToken.split('.');
+    if (parts.length === 3) {
+      const payload = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as {
+        sub?: string;
+        email?: string;
+        email_verified?: boolean;
+        name?: string;
+      };
+      if (payload.sub && payload.email) {
+        return {
+          provider: 'google',
+          subject: payload.sub,
+          email: payload.email.toLowerCase(),
+          emailVerified: Boolean(payload.email_verified),
+          name: payload.name,
+        };
+      }
+    }
+  }
+
+  const response = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) throw new Error('Unable to fetch Google profile');
+  const profile = (await response.json()) as {
+    sub: string;
+    email: string;
+    email_verified?: boolean;
+    name?: string;
+  };
+  return {
+    provider: 'google',
+    subject: profile.sub,
+    email: profile.email.toLowerCase(),
+    emailVerified: Boolean(profile.email_verified),
+    name: profile.name,
+  };
+}
+
+async function fetchGithubIdentity(accessToken: string): Promise<OAuthIdentity> {
+  const profileResponse = await fetch('https://api.github.com/user', {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'GridStore',
+    },
+  });
+  if (!profileResponse.ok) throw new Error('Unable to fetch GitHub profile');
+  const profile = (await profileResponse.json()) as { id: number; email?: string | null; name?: string; login: string };
+
+  let email = profile.email ?? undefined;
+  let emailVerified = false;
+  const emailsResponse = await fetch('https://api.github.com/user/emails', {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'GridStore',
+    },
+  });
+  if (emailsResponse.ok) {
+    const emails = (await emailsResponse.json()) as Array<{
+      email: string;
+      primary: boolean;
+      verified: boolean;
+    }>;
+    const primary = emails.find((item) => item.primary && item.verified) ?? emails.find((item) => item.verified);
+    if (primary) {
+      email = primary.email;
+      emailVerified = primary.verified;
+    }
+  }
+
+  if (!email) {
+    throw new Error('GitHub account has no verified email');
+  }
+
+  return {
+    provider: 'github',
+    subject: String(profile.id),
+    email: email.toLowerCase(),
+    emailVerified,
+    name: profile.name || profile.login,
+  };
+}
+
 export async function exchangeOAuthCode(
   provider: OAuthProvider,
   input: { code: string; state: string; codeVerifier: string }
-) {
+): Promise<{ mode: 'simulated' | 'live'; identity: OAuthIdentity }> {
   const pending = pendingStates.get(input.state);
   if (!pending || pending.provider !== provider) {
     throw new Error('Invalid OAuth state');
@@ -117,17 +211,58 @@ export async function exchangeOAuthCode(
 
   if (!providerConfigured(provider)) {
     if (env.allowSimulatedOauth && !env.isProduction) {
-      return { mode: 'simulated' as const, emailVerified: true };
+      return {
+        mode: 'simulated',
+        identity: {
+          provider,
+          subject: `sim-${provider}-${input.code.slice(0, 12)}`,
+          email: `${provider}.user@gridstore.local`,
+          emailVerified: true,
+          name: `${provider === 'google' ? 'Google' : 'GitHub'} User`,
+        },
+      };
     }
     throw new Error(`${provider} OAuth is not configured`);
   }
 
-  // Live token exchange is ready for configured apps; provider profile verification
-  // continues in a follow-up once client credentials are present in each environment.
-  return {
-    mode: 'live' as const,
-    emailVerified: true,
-    code: input.code,
-    nonce: pending.nonce,
-  };
+  const redirectUri =
+    process.env.OAUTH_REDIRECT_URI ?? `${env.publicWebUrl}/login/oauth/${provider}/callback`;
+
+  if (provider === 'google') {
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_OAUTH_CLIENT_ID!,
+        client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET!,
+        code: input.code,
+        code_verifier: input.codeVerifier,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+      }),
+    });
+    if (!tokenResponse.ok) throw new Error('Google token exchange failed');
+    const tokens = (await tokenResponse.json()) as { access_token: string; id_token?: string };
+    const identity = await fetchGoogleIdentity(tokens.access_token, tokens.id_token);
+    return { mode: 'live', identity };
+  }
+
+  const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      client_id: process.env.GITHUB_OAUTH_CLIENT_ID,
+      client_secret: process.env.GITHUB_OAUTH_CLIENT_SECRET,
+      code: input.code,
+      redirect_uri: redirectUri,
+    }),
+  });
+  if (!tokenResponse.ok) throw new Error('GitHub token exchange failed');
+  const tokens = (await tokenResponse.json()) as { access_token?: string; error?: string };
+  if (!tokens.access_token) throw new Error(tokens.error || 'GitHub token exchange failed');
+  const identity = await fetchGithubIdentity(tokens.access_token);
+  return { mode: 'live', identity };
 }

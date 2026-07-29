@@ -196,9 +196,8 @@ authRouter.post('/oauth/:provider/callback', authLimiter, async (req, res) => {
   }
 
   try {
-    await exchangeOAuthCode(provider, parsed.data);
-    // Until real provider apps are configured, fall back is blocked in production.
-    const user = await platformStore.oauthLogin(provider, requestMeta(req));
+    const exchanged = await exchangeOAuthCode(provider, parsed.data);
+    const user = await platformStore.oauthLogin(provider, requestMeta(req), exchanged.identity);
     res.json(authResponse(user));
   } catch (error) {
     handleAuthError(res, error);

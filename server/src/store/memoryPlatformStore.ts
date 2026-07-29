@@ -20,6 +20,7 @@ import {
 } from '../lib/authSecurity.js';
 import { accessTokenTtlSeconds, signAccessToken } from '../lib/tokens.js';
 import { assertPasswordPolicy, generateMfaSecret, verifyTotp } from '../lib/security.js';
+import { decryptSecret, encryptSecret } from '../lib/cryptoSecrets.js';
 import {
   assertOrderTransition,
   buildAuthoritativeLines,
@@ -256,26 +257,40 @@ export class MemoryPlatformStore implements PlatformStore {
 
   async oauthLogin(
     provider: 'google' | 'github',
-    meta: { ip?: string; userAgent?: string } = {}
+    meta: { ip?: string; userAgent?: string } = {},
+    identity?: { subject: string; email: string; emailVerified: boolean; name?: string }
   ): Promise<AuthUser> {
     await this.ensureSeeded();
-    if (!env.allowSimulatedOauth) {
+    if (!identity && !env.allowSimulatedOauth) {
       throw new Error('Simulated OAuth is disabled');
     }
-    const email = `${provider}.user@gridstore.local`;
-    let user = this.getUserByEmail(email);
+    const subject = identity?.subject ?? `sim-${provider}`;
+    const email = (identity?.email ?? `${provider}.user@gridstore.local`).toLowerCase();
+    const linked = Array.from(this.users.values()).find(
+      (user) => user.oauthProvider === provider && user.oauthSubject === subject
+    );
+    let user = linked ?? this.getUserByEmail(email);
     if (!user) {
       user = this.createStoredUser({
         id: createId(provider),
-        name: `${provider === 'google' ? 'Google' : 'GitHub'} User`,
+        name: identity?.name ?? `${provider === 'google' ? 'Google' : 'GitHub'} User`,
         email,
         role: 'buyer',
-        verified: true,
+        verified: Boolean(identity?.emailVerified ?? true),
         passwordHash: '',
         mustChangePassword: false,
         mfaEnabled: false,
-        emailVerified: true,
+        emailVerified: Boolean(identity?.emailVerified ?? true),
+        oauthProvider: provider,
+        oauthSubject: subject,
       });
+    } else {
+      user.oauthProvider = provider;
+      user.oauthSubject = subject;
+      if (identity?.emailVerified) {
+        user.emailVerified = true;
+        user.verified = true;
+      }
     }
     return await this.toAuthUser(user, meta);
   }
@@ -358,7 +373,7 @@ export class MemoryPlatformStore implements PlatformStore {
   async enableMfa(userId: string, secret: string) {
     const user = this.users.get(userId);
     if (!user) throw new Error('User not found');
-    user.mfaSecret = secret;
+    user.mfaSecret = encryptSecret(secret);
     user.mfaEnabled = false;
     return this.toPublicUser(user);
   }
@@ -366,7 +381,9 @@ export class MemoryPlatformStore implements PlatformStore {
   async confirmMfa(userId: string, token: string) {
     const user = this.users.get(userId);
     if (!user?.mfaSecret) return false;
-    const ok = verifyTotp(user.mfaSecret, token);
+    const secret = decryptSecret(user.mfaSecret);
+    if (!secret) return false;
+    const ok = verifyTotp(secret, token);
     if (ok) user.mfaEnabled = true;
     return ok;
   }
@@ -378,7 +395,13 @@ export class MemoryPlatformStore implements PlatformStore {
     }
     if (!user.mfaEnabled || !user.mfaSecret) return false;
     if (!token) return false;
-    return verifyTotp(user.mfaSecret, token);
+    try {
+      const secret = decryptSecret(user.mfaSecret);
+      if (!secret) return false;
+      return verifyTotp(secret, token);
+    } catch {
+      return false;
+    }
   }
 
   async createSellerApplication(userId: string, input: SellerApplicationInput) {
@@ -609,8 +632,10 @@ export class MemoryPlatformStore implements PlatformStore {
       }
     }
 
-    const { lines, totalCents } = buildAuthoritativeLines(input.lines, (productId) =>
-      this.getListing(productId)
+    const { lines, totalCents } = buildAuthoritativeLines(
+      input.lines,
+      (productId) => this.getListing(productId),
+      input.auctionWinAmount != null ? { auctionWinAmountRands: input.auctionWinAmount } : undefined
     );
 
     for (const line of lines) {
@@ -939,7 +964,14 @@ export class MemoryPlatformStore implements PlatformStore {
     patch: Partial<
       Pick<
         SellerListing,
-        'currentBid' | 'bidCount' | 'auctionStatus' | 'haggleEnabled' | 'saleMode' | 'auctionEndsAt'
+        | 'currentBid'
+        | 'bidCount'
+        | 'auctionStatus'
+        | 'haggleEnabled'
+        | 'saleMode'
+        | 'auctionEndsAt'
+        | 'auctionWinnerId'
+        | 'winningOrderId'
       >
     >
   ) {
@@ -951,6 +983,8 @@ export class MemoryPlatformStore implements PlatformStore {
     if (patch.haggleEnabled !== undefined) listing.haggleEnabled = patch.haggleEnabled;
     if (patch.saleMode !== undefined) listing.saleMode = patch.saleMode;
     if (patch.auctionEndsAt !== undefined) listing.auctionEndsAt = patch.auctionEndsAt;
+    if (patch.auctionWinnerId !== undefined) listing.auctionWinnerId = patch.auctionWinnerId;
+    if (patch.winningOrderId !== undefined) listing.winningOrderId = patch.winningOrderId;
     return listing;
   }
 

@@ -7,7 +7,6 @@ import {
   extendedAuctionEndsAt,
   isOfferExpired,
   offerExpiryIso,
-  resolveAuctionClose,
   shouldExtendAuctionForAntiSnipe,
 } from '../../lib/auctionTrade.js';
 import { isAuctionLive } from '../../lib/listingSale.js';
@@ -201,6 +200,7 @@ export class MemoryTradeStore implements TradeStore {
   }
 
   async closeExpiredAuctions() {
+    const { settleClosedAuction } = await import('../../lib/auctionSettlement.js');
     const auctions = platformStore
       .listAllAuctionsAdmin()
       .filter((listing) => listing.auctionStatus === 'live');
@@ -208,10 +208,7 @@ export class MemoryTradeStore implements TradeStore {
     for (const listing of auctions) {
       if (isAuctionLive(listing)) continue;
       const topBid = (await this.listBids(listing.id))[0] ?? null;
-      const result = resolveAuctionClose(listing, topBid);
-      await platformStore.updateListingTradeFields(listing.id, {
-        auctionStatus: result.auctionStatus,
-      });
+      await settleClosedAuction(listing, topBid);
     }
   }
 }

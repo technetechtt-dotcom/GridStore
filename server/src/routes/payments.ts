@@ -25,7 +25,9 @@ const webhookLimiter = rateLimit({
 
 paymentsRouter.post('/webhooks/:provider', webhookLimiter, async (req, res) => {
   try {
-    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
+    const rawBody =
+      (req as { rawBody?: string }).rawBody ??
+      (typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {}));
     const signature =
       (req.header('x-gridstore-signature') || req.header('x-paystack-signature') || undefined) ??
       undefined;
@@ -74,8 +76,8 @@ paymentsRouter.post('/intents', async (req: AuthenticatedRequest, res) => {
   }
 });
 
-paymentsRouter.get('/orders/:orderId', (req: AuthenticatedRequest, res) => {
-  const payment = getPaymentByOrder(req.params.orderId);
+paymentsRouter.get('/orders/:orderId', async (req: AuthenticatedRequest, res) => {
+  const payment = await getPaymentByOrder(req.params.orderId);
   if (!payment || payment.userId !== req.user!.id) {
     res.status(404).json({ error: 'Payment not found' });
     return;

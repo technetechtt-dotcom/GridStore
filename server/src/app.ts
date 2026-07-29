@@ -29,6 +29,7 @@ import { sellerApplicationsRouter } from './routes/sellerApplications.js';
 import { servicesRouter } from './routes/services.js';
 import { storesRouter } from './routes/stores.js';
 import { wishlistRouter } from './routes/wishlist.js';
+import { platformOpsRouter } from './routes/platformOps.js';
 
 function isAllowedCorsOrigin(origin?: string) {
   if (!origin) return true;
@@ -109,7 +110,16 @@ export function createApp() {
     })
   );
 
-  app.use(express.json({ limit: env.jsonBodyLimit }));
+  app.use(
+    express.json({
+      limit: env.jsonBodyLimit,
+      verify(req, _res, buf) {
+        if (req.originalUrl?.includes('/payments/webhooks')) {
+          (req as express.Request & { rawBody?: string }).rawBody = buf.toString('utf8');
+        }
+      },
+    })
+  );
   app.use((error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (error instanceof SyntaxError && 'body' in error) {
       res.status(400).json({ error: 'Invalid JSON payload' });
@@ -169,6 +179,7 @@ export function createApp() {
   api.use('/auctions', bidLimiter, auctionsRouter);
   api.use('/orders', ordersRouter);
   api.use('/payments', paymentsRouter);
+  api.use('/platform', platformOpsRouter);
   api.use('/listings', listingsRouter);
   api.use('/cart', cartRouter);
   api.use('/wishlist', wishlistRouter);

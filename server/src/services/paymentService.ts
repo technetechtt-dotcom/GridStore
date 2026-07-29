@@ -6,11 +6,13 @@ import {
   getPaymentByOrder,
   listPayments,
   markPaymentRefunded,
+  paymentProvider,
   processProviderWebhook,
   sandboxAutoCapture,
   verifyWebhookSignature,
   type PaymentIntent,
 } from '../lib/payments.js';
+import { mapPaystackWebhookEvent, verifyPaystackTransaction, paystackConfigured } from '../lib/paystack.js';
 import { postPaymentCaptureJournal, postRefundJournal, validateLedgerIntegrity } from '../lib/ledger.js';
 import { recordSecurityEvent } from '../lib/security.js';
 import { platformStore } from '../store/index.js';
@@ -47,32 +49,61 @@ export async function createIntentForOrder(input: {
   return intent;
 }
 
+async function assertProviderCaptureAllowed(reference: string, amountCents: number) {
+  if (paymentProvider() !== 'paystack' || !paystackConfigured()) return;
+  const verified = await verifyPaystackTransaction(reference);
+  if (verified.status !== 'success') {
+    throw new Error(`Paystack verification failed: ${verified.status}`);
+  }
+  if (verified.amount !== amountCents) {
+    throw new Error('Paystack verified amount does not match payment intent');
+  }
+}
+
 export async function applyVerifiedWebhook(input: {
   rawBody: string;
   signature?: string;
   parsedBody?: unknown;
 }): Promise<{ payment: PaymentIntent; duplicate?: boolean }> {
+  const provider = paymentProvider();
   let parsed: {
     providerEventId: string;
     eventType: 'payment.authorized' | 'payment.captured' | 'payment.failed' | 'payment.cancelled' | 'payment.refunded';
     reference: string;
     amountCents: number;
   };
+
   try {
-    parsed = (input.parsedBody ?? JSON.parse(input.rawBody)) as typeof parsed;
-  } catch {
+    const body =
+      input.parsedBody ??
+      (typeof input.rawBody === 'string' ? JSON.parse(input.rawBody) : input.rawBody);
+    if (provider === 'paystack' && body && typeof body === 'object' && 'event' in (body as object)) {
+      const mapped = mapPaystackWebhookEvent(body as Record<string, unknown>);
+      if (!mapped) throw new Error('Unsupported Paystack webhook event');
+      parsed = mapped;
+    } else {
+      parsed = body as typeof parsed;
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Unsupported')) throw error;
     throw new Error('Invalid webhook payload');
   }
 
-  const canonical = canonicalizeWebhookPayload(parsed);
-  if (!verifyWebhookSignature(canonical, input.signature)) {
+  const signatureBody =
+    provider === 'paystack' && process.env.PAYSTACK_SECRET_KEY ? input.rawBody : canonicalizeWebhookPayload(parsed);
+
+  if (!verifyWebhookSignature(signatureBody, input.signature, provider)) {
     recordSecurityEvent('payment.webhook.invalid_signature', {});
     throw new Error('Invalid webhook signature');
   }
 
+  if (parsed.eventType === 'payment.captured') {
+    await assertProviderCaptureAllowed(parsed.reference, parsed.amountCents);
+  }
+
   const result = await processProviderWebhook({
     ...parsed,
-    rawBody: canonical,
+    rawBody: signatureBody,
   });
   if (!result.ok) {
     throw new Error(result.error);

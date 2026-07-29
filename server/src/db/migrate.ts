@@ -476,4 +476,140 @@ export async function migrate() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS gridstore_schema_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await applyVersionedMigrations(db);
+}
+
+type Sql = ReturnType<typeof requireSql>;
+
+const VERSIONED_MIGRATIONS: Array<{
+  id: string;
+  up: (db: Sql) => Promise<void>;
+  down: (db: Sql) => Promise<void>;
+}> = [
+  {
+    id: '20260729_platform_completion',
+    async up(db) {
+      await db`ALTER TABLE gridstore_users ADD COLUMN IF NOT EXISTS oauth_provider TEXT`;
+      await db`ALTER TABLE gridstore_users ADD COLUMN IF NOT EXISTS oauth_subject TEXT`;
+      await db`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_gridstore_users_oauth
+        ON gridstore_users(oauth_provider, oauth_subject)
+        WHERE oauth_provider IS NOT NULL AND oauth_subject IS NOT NULL
+      `;
+      await db`ALTER TABLE gridstore_listings ADD COLUMN IF NOT EXISTS auction_winner_id TEXT`;
+      await db`ALTER TABLE gridstore_listings ADD COLUMN IF NOT EXISTS winning_order_id TEXT`;
+      await db`
+        CREATE TABLE IF NOT EXISTS gridstore_auction_results (
+          id TEXT PRIMARY KEY,
+          listing_id TEXT NOT NULL UNIQUE REFERENCES gridstore_listings(id) ON DELETE CASCADE,
+          winner_id TEXT,
+          winning_bid_cents BIGINT,
+          outcome TEXT NOT NULL,
+          order_id TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+      await db`
+        CREATE TABLE IF NOT EXISTS gridstore_jobs (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+          status TEXT NOT NULL,
+          attempts INT NOT NULL DEFAULT 0,
+          available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          last_error TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+      await db`CREATE INDEX IF NOT EXISTS idx_gridstore_jobs_pending ON gridstore_jobs(status, available_at)`;
+      await db`
+        CREATE TABLE IF NOT EXISTS gridstore_payouts (
+          id TEXT PRIMARY KEY,
+          seller_id TEXT NOT NULL REFERENCES gridstore_users(id) ON DELETE CASCADE,
+          amount_cents BIGINT NOT NULL,
+          platform_fee_cents BIGINT NOT NULL DEFAULT 0,
+          status TEXT NOT NULL,
+          schedule_at TIMESTAMPTZ NOT NULL,
+          paid_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          memo TEXT NOT NULL DEFAULT ''
+        )
+      `;
+      await db`
+        CREATE TABLE IF NOT EXISTS gridstore_disputes (
+          id TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL REFERENCES gridstore_orders(id) ON DELETE CASCADE,
+          opened_by TEXT NOT NULL REFERENCES gridstore_users(id) ON DELETE CASCADE,
+          reason TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+      await db`
+        CREATE TABLE IF NOT EXISTS gridstore_dispute_evidence (
+          id TEXT PRIMARY KEY,
+          dispute_id TEXT NOT NULL REFERENCES gridstore_disputes(id) ON DELETE CASCADE,
+          actor_id TEXT NOT NULL,
+          note TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+      await db`
+        CREATE TABLE IF NOT EXISTS gridstore_shipping_events (
+          id TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL REFERENCES gridstore_orders(id) ON DELETE CASCADE,
+          status TEXT NOT NULL,
+          carrier TEXT,
+          tracking_number TEXT,
+          location TEXT,
+          note TEXT,
+          actor_id TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+    },
+    async down(db) {
+      await db`DROP TABLE IF EXISTS gridstore_shipping_events`;
+      await db`DROP TABLE IF EXISTS gridstore_dispute_evidence`;
+      await db`DROP TABLE IF EXISTS gridstore_disputes`;
+      await db`DROP TABLE IF EXISTS gridstore_payouts`;
+      await db`DROP TABLE IF EXISTS gridstore_jobs`;
+      await db`DROP TABLE IF EXISTS gridstore_auction_results`;
+      await db`ALTER TABLE gridstore_listings DROP COLUMN IF EXISTS winning_order_id`;
+      await db`ALTER TABLE gridstore_listings DROP COLUMN IF EXISTS auction_winner_id`;
+      await db`DROP INDEX IF EXISTS idx_gridstore_users_oauth`;
+      await db`ALTER TABLE gridstore_users DROP COLUMN IF EXISTS oauth_subject`;
+      await db`ALTER TABLE gridstore_users DROP COLUMN IF EXISTS oauth_provider`;
+    },
+  },
+];
+
+async function applyVersionedMigrations(db: Sql) {
+  for (const migration of VERSIONED_MIGRATIONS) {
+    const existing = (await db`
+      SELECT id FROM gridstore_schema_migrations WHERE id = ${migration.id} LIMIT 1
+    `) as Array<{ id: string }>;
+    if (existing[0]) continue;
+    await migration.up(db);
+    await db`INSERT INTO gridstore_schema_migrations (id) VALUES (${migration.id})`;
+  }
+}
+
+/** Controlled rollback of a single versioned migration (ops use only). */
+export async function migrateDown(migrationId: string) {
+  const db = requireSql();
+  const migration = VERSIONED_MIGRATIONS.find((item) => item.id === migrationId);
+  if (!migration) throw new Error(`Unknown migration ${migrationId}`);
+  await migration.down(db);
+  await db`DELETE FROM gridstore_schema_migrations WHERE id = ${migrationId}`;
 }

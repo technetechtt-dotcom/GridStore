@@ -242,6 +242,26 @@ export async function createPaymentIntent(input: CreatePaymentIntentInput): Prom
   const provider = paymentProvider();
   const providerReference = `gs_${randomBytes(10).toString('hex')}`;
   const now = new Date().toISOString();
+  let authorizationUrl =
+    provider === 'sandbox'
+      ? `${env.publicWebUrl}/checkout?sandboxPayment=${providerReference}`
+      : undefined;
+
+  if (provider === 'paystack') {
+    const { initializePaystackTransaction, paystackConfigured } = await import('./paystack.js');
+    if (!paystackConfigured()) {
+      throw new Error('PAYSTACK_SECRET_KEY is required for Paystack payments');
+    }
+    const user = (await import('../store/index.js')).platformStore.getUserById(input.userId);
+    const initialized = await initializePaystackTransaction({
+      email: user?.email ?? `buyer-${input.userId}@gridstore.local`,
+      amountCents: input.amountCents,
+      reference: providerReference,
+      metadata: { orderId: input.orderId, userId: input.userId },
+    });
+    authorizationUrl = initialized.authorization_url;
+  }
+
   const intent: PaymentIntent = {
     id: createId('pay'),
     orderId: input.orderId,
@@ -251,10 +271,7 @@ export async function createPaymentIntent(input: CreatePaymentIntentInput): Prom
     amountCents: input.amountCents,
     currency: 'ZAR',
     status: 'pending',
-    authorizationUrl:
-      provider === 'sandbox'
-        ? `${env.publicWebUrl}/checkout?sandboxPayment=${providerReference}`
-        : `https://checkout.paystack.com/${providerReference}`,
+    authorizationUrl,
     idempotencyKey: input.idempotencyKey,
     createdAt: now,
     updatedAt: now,
@@ -270,8 +287,19 @@ export function signWebhookPayload(body: string, secret = paymentWebhookSecret()
   return createHmac('sha256', secret).update(body).digest('hex');
 }
 
-export function verifyWebhookSignature(body: string, signature: string | undefined) {
+export function verifyWebhookSignature(
+  body: string,
+  signature: string | undefined,
+  provider: 'sandbox' | 'paystack' = paymentProvider()
+) {
   if (!signature) return false;
+  if (provider === 'paystack' && process.env.PAYSTACK_SECRET_KEY) {
+    const expected = createHmac('sha512', process.env.PAYSTACK_SECRET_KEY).update(body).digest('hex');
+    const left = Buffer.from(expected);
+    const right = Buffer.from(signature);
+    if (left.length !== right.length) return false;
+    return timingSafeEqual(left, right);
+  }
   const expected = signWebhookPayload(body);
   const left = Buffer.from(expected);
   const right = Buffer.from(signature);
