@@ -30,6 +30,7 @@ import {
   AdminAnalytics,
   AdminDashboard,
   AdminDisputes,
+  AdminOps,
   AdminListings,
   AdminModeration,
   AdminOrders,
@@ -188,6 +189,7 @@ export function App() {
                 <Route path="orders" element={<AdminOrders />} />
                 <Route path="payments" element={<AdminPayments />} />
                 <Route path="disputes" element={<AdminDisputes />} />
+                <Route path="ops" element={<AdminOps />} />
                 <Route path="moderation" element={<AdminModeration />} />
                 <Route path="analytics" element={<AdminAnalytics />} />
                 <Route path="ai" element={<AdminAiMonitoring />} />

@@ -10,6 +10,7 @@ import {
   ReceiptText } from
 'lucide-react';
 import { toast } from 'sonner';
+import { apiCreatePaymentIntent, apiOpenDispute, isPlatformApiAvailable } from '../services/platformApi';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -161,6 +162,23 @@ export function Checkout() {
     event.preventDefault();
     try {
       const order = await createOrder({ deliveryAddress, paymentMethod });
+      const needsPayment =
+        order.status === 'pending_payment' &&
+        (paymentMethod === 'card' || paymentMethod === 'paystack') &&
+        isPlatformApiAvailable();
+
+      if (needsPayment) {
+        const intent = await apiCreatePaymentIntent({
+          orderId: order.id,
+          idempotencyKey: `pay-${order.id}`,
+        });
+        if (intent.authorizationUrl) {
+          toast.success(`Order ${order.receiptNumber} created — redirecting to payment`);
+          window.location.href = intent.authorizationUrl;
+          return;
+        }
+      }
+
       toast.success(`Order ${order.receiptNumber} created`);
       navigate('/orders');
     } catch (error) {
@@ -174,7 +192,7 @@ export function Checkout() {
         <div>
           <h1 className="text-3xl font-display font-bold tracking-tight">Checkout</h1>
           <p className="text-muted-foreground">
-            Order creation is wired locally and ready for payment-provider integration.
+            Secure checkout with server-authoritative pricing and payment provider redirect.
           </p>
         </div>
         <Badge variant="secondary">{cartLines.length} items</Badge>
@@ -209,9 +227,9 @@ export function Checkout() {
                 <p className="text-sm font-medium mb-2">Payment method</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {[
-                    ['card', 'Card'],
+                    ['card', 'Card / Paystack'],
                     ['manual_eft', 'Manual EFT'],
-                    ['wallet', 'Wallet'],
+                    ['paystack', 'Paystack'],
                   ].map(([value, label]) => (
                     <button
                       key={value}
@@ -229,8 +247,8 @@ export function Checkout() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Card and wallet are simulated here. Connect PayFast, Peach Payments, Stripe, or
-                your PSP in the backend to authorize real payments.
+                Card and Paystack redirect to the configured payment provider. Manual EFT orders stay
+                in pending payment until staff confirms receipt.
               </p>
             </CardContent>
           </Card>
@@ -338,6 +356,28 @@ export function OrderHistory() {
                     >
                       Request refund
                     </Button>
+                    {isPlatformApiAvailable() &&
+                      ['paid', 'processing', 'shipped', 'delivered'].includes(order.status) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const reason = window.prompt(
+                              'Describe the issue for buyer protection review:'
+                            );
+                            if (!reason?.trim()) return;
+                            void apiOpenDispute({ orderId: order.id, reason: reason.trim() })
+                              .then(() => toast.success('Dispute opened for support review'))
+                              .catch((error: unknown) =>
+                                toast.error(
+                                  error instanceof Error ? error.message : 'Unable to open dispute'
+                                )
+                              );
+                          }}
+                        >
+                          Open dispute
+                        </Button>
+                      )}
                   </div>
                 </div>
               </CardContent>

@@ -139,7 +139,8 @@ ordersRouter.post('/:id/refund', async (req: AuthenticatedRequest, res) => {
       return;
     }
 
-    const order = await platformStore.refundOrder(req.user!.id, req.params.id);
+    const { executeOrderRefund } = await import('../services/paymentService.js');
+    const order = await executeOrderRefund({ orderId: req.params.id, userId: req.user!.id });
     res.json(stripUserId(order));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to refund order';

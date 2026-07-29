@@ -317,6 +317,95 @@ export async function apiRefundOrder(orderId: string) {
   });
 }
 
+export interface PaymentIntent {
+  id: string;
+  orderId: string;
+  authorizationUrl?: string;
+  status: string;
+  provider: string;
+  amountCents: number;
+}
+
+export async function apiCreatePaymentIntent(input: { orderId: string; idempotencyKey?: string }) {
+  return platformFetch<PaymentIntent>('/payments/intents', {
+    method: 'POST',
+    body: JSON.stringify(input),
+    headers: input.idempotencyKey
+      ? { 'Idempotency-Key': input.idempotencyKey }
+      : undefined,
+  });
+}
+
+export async function apiGetPaymentForOrder(orderId: string) {
+  return platformFetch<PaymentIntent>(`/payments/orders/${encodeURIComponent(orderId)}`);
+}
+
+export interface PlatformDispute {
+  id: string;
+  orderId: string;
+  openedBy: string;
+  reason: string;
+  status: string;
+  evidence: Array<{ id: string; note: string; createdAt: string; actorId: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function apiOpenDispute(input: { orderId: string; reason: string }) {
+  return platformFetch<PlatformDispute>('/platform/disputes', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function apiListDisputes(orderId?: string) {
+  return platformFetch<PlatformDispute[]>('/platform/disputes', {
+    query: orderId ? { orderId } : undefined,
+  });
+}
+
+export async function apiAddDisputeEvidence(disputeId: string, note: string) {
+  return platformFetch<PlatformDispute>(`/platform/disputes/${encodeURIComponent(disputeId)}/evidence`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
+  });
+}
+
+export async function apiResolveDispute(
+  disputeId: string,
+  resolution: 'resolved_buyer' | 'resolved_seller' | 'closed'
+) {
+  return platformFetch<PlatformDispute>(`/platform/disputes/${encodeURIComponent(disputeId)}/resolve`, {
+    method: 'POST',
+    body: JSON.stringify({ resolution }),
+  });
+}
+
+export interface ShippingEvent {
+  id: string;
+  orderId: string;
+  status: string;
+  carrier?: string;
+  trackingNumber?: string;
+  location?: string;
+  note?: string;
+  createdAt: string;
+}
+
+export async function apiListShippingEvents(orderId: string) {
+  return platformFetch<ShippingEvent[]>(`/platform/orders/${encodeURIComponent(orderId)}/shipping-events`);
+}
+
+export async function apiTransitionOrder(
+  orderId: string,
+  input: { action: string; trackingNumber?: string }
+) {
+  return platformFetch<Order>(`/orders/${encodeURIComponent(orderId)}/transitions`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 function normalizeListing(row: Record<string, unknown>): SellerListing {
   return {
     id: String(row.id),

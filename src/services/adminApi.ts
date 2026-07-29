@@ -232,3 +232,80 @@ export function apiUpdateAdminAuction(
     body: JSON.stringify(patch),
   });
 }
+
+export interface PlatformMonitoringSnapshot {
+  generatedAt: string;
+  counts: {
+    stuckPendingOrders: number;
+    pendingPayments: number;
+    failedPayments: number;
+    recentAuthFailures: number;
+    ledgerJournals: number;
+    sellerPayableCents: number;
+  };
+  alerts: string[];
+}
+
+export interface PlatformDisputeRow {
+  id: string;
+  orderId: string;
+  openedBy: string;
+  reason: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  evidence?: Array<{ id: string; note: string; createdAt: string; actorId: string }>;
+}
+
+export interface PlatformPayoutRow {
+  id: string;
+  sellerId: string;
+  amountCents: number;
+  platformFeeCents: number;
+  status: string;
+  scheduleAt: string;
+  paidAt?: string;
+  createdAt: string;
+  memo: string;
+}
+
+export function apiGetPlatformMonitoring() {
+  return platformFetch<PlatformMonitoringSnapshot>('/platform/monitoring');
+}
+
+export function apiGetPlatformDisputes() {
+  return platformFetch<PlatformDisputeRow[]>('/platform/disputes');
+}
+
+export function apiResolvePlatformDispute(
+  disputeId: string,
+  resolution: 'resolved_buyer' | 'resolved_seller' | 'closed'
+) {
+  return platformFetch<PlatformDisputeRow>(`/platform/disputes/${encodeURIComponent(disputeId)}/resolve`, {
+    method: 'POST',
+    body: JSON.stringify({ resolution }),
+  });
+}
+
+export function apiGetPlatformPayouts(sellerId?: string) {
+  return platformFetch<PlatformPayoutRow[]>('/platform/payouts', {
+    query: sellerId ? { sellerId } : undefined,
+  });
+}
+
+export function apiSchedulePlatformPayout(input: {
+  sellerId: string;
+  amountCents: number;
+  memo?: string;
+}) {
+  return platformFetch<PlatformPayoutRow>('/platform/payouts', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function apiRunPlatformJobs() {
+  return platformFetch<{ ok: boolean; processed: number }>('/platform/jobs/run', {
+    method: 'POST',
+  });
+}

@@ -36,6 +36,7 @@ const ADMIN_NAV = [
   { to: adminPath('orders'), label: 'Orders', icon: ShoppingCart },
   { to: adminPath('payments'), label: 'Payments', icon: Wallet },
   { to: adminPath('disputes'), label: 'Disputes', icon: Shield },
+  { to: adminPath('ops'), label: 'Platform Ops', icon: Activity },
   { to: adminPath('moderation'), label: 'Moderation', icon: Flag },
   { to: adminPath('analytics'), label: 'Analytics', icon: Activity },
   { to: adminPath('ai'), label: 'AI Monitoring', icon: Bot },

@@ -87,6 +87,17 @@ export async function settleClosedAuction(listing: SellerListing, topBid?: Aucti
       auctionWinnerId: resolved.winnerId,
       winningOrderId: orderId,
     });
+
+    const { sendTransactionalEmail } = await import('./authSecurity.js');
+    const { env } = await import('../config/env.js');
+    if (winner?.email) {
+      await sendTransactionalEmail({
+        to: winner.email,
+        subject: `You won the auction: ${listing.title}`,
+        body: `Congratulations! You won "${listing.title}" for R ${topBid.amount.toLocaleString('en-ZA')}.\n\nComplete payment for order ${order.receiptNumber} at ${env.publicWebUrl}/orders.\n\nOrder ID: ${order.id}`,
+      });
+    }
+
     recordSecurityEvent('auction.settled', {
       actorId: resolved.winnerId,
       targetId: listing.id,

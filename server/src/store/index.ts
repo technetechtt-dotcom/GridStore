@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { loadLedgerFromDatabase } from '../lib/ledger.js';
 import { MemoryPlatformStore } from './memoryPlatformStore.js';
 import { PostgresPlatformStore } from './postgresPlatformStore.js';
 import type { PlatformStore } from './storeTypes.js';
@@ -11,6 +12,7 @@ export async function initPlatformStore() {
   if (env.databaseUrl) {
     const store = new PostgresPlatformStore();
     await store.ensureSeeded();
+    await loadLedgerFromDatabase();
     platformStore = store;
     console.log('Platform store: PostgreSQL (Neon)');
     return store;

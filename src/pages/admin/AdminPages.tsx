@@ -48,6 +48,7 @@ import {
   TableRow,
 } from '../../components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { apiTransitionOrder } from '../../services/platformApi';
 import {
   apiGetAdminAnalytics,
   apiGetAdminListings,
@@ -58,6 +59,11 @@ import {
   apiGetAdminStats,
   apiGetAdminStores,
   apiGetAdminUsers,
+  apiGetPlatformDisputes,
+  apiGetPlatformMonitoring,
+  apiResolvePlatformDispute,
+  apiRunPlatformJobs,
+  apiGetPlatformPayouts,
   apiResetAdminUserPassword,
   apiUpdateAdminListing,
   apiUpdateAdminOrder,
@@ -568,17 +574,27 @@ export function AdminOrders() {
   const { data, loading, error, refresh } = useAdminResource(apiGetAdminOrders);
 
   const advanceOrder = async (order: AdminOrderRow) => {
-    const nextStatus =
+    const action =
       order.status === 'paid'
-        ? 'processing'
+        ? 'start_processing'
         : order.status === 'processing'
-          ? 'shipped'
+          ? 'ship'
           : order.status === 'shipped'
-            ? 'delivered'
-            : order.status;
+            ? 'deliver'
+            : null;
+
+    if (!action) return;
+
+    const trackingNumber =
+      action === 'ship'
+        ? window.prompt('Tracking number (optional)') ?? undefined
+        : undefined;
 
     try {
-      await apiUpdateAdminOrder(order.id, { status: nextStatus });
+      await apiTransitionOrder(order.id, {
+        action,
+        trackingNumber: trackingNumber?.trim() || undefined,
+      });
       toast.success(`Order ${order.receiptNumber} updated`);
       void refresh();
     } catch (err) {
@@ -752,22 +768,186 @@ function ReportsTable({
 }
 
 export function AdminDisputes() {
-  const handleResolve = async (report: TrustReport) => {
+  const { data, loading, error, refresh } = useAdminResource(apiGetPlatformDisputes);
+
+  const resolve = async (
+    disputeId: string,
+    resolution: 'resolved_buyer' | 'resolved_seller' | 'closed'
+  ) => {
     try {
-      await apiUpdateAdminReport(report.id, report.status);
-      toast.success('Report updated');
+      await apiResolvePlatformDispute(disputeId, resolution);
+      toast.success('Dispute resolved');
+      void refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Update failed');
-      throw err;
+      toast.error(err instanceof Error ? err.message : 'Unable to resolve dispute');
     }
   };
 
+  if (loading) return <OpsLoading />;
+  if (error) return <OpsError message={error} onRetry={refresh} />;
+
   return (
-    <ReportsTable
-      title="Disputes"
-      description="Resolve buyer-seller conflicts and trust escalations."
-      onResolve={handleResolve}
-    />
+    <div className="space-y-6 animate-fade-in">
+      <PageHeader
+        title="Order Disputes"
+        description="Buyer protection cases with evidence and refund resolution."
+      />
+      {(data ?? []).length === 0 ? (
+        <EmptyState
+          icon={Shield}
+          title="No open disputes"
+          description="Buyer protection cases opened from order history will appear here."
+        />
+      ) : (
+        <Card className="border-border/60 shadow-soft">
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Order</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Opened</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(data ?? []).map((dispute) => (
+                  <TableRow key={dispute.id}>
+                    <TableCell className="font-mono text-xs">{dispute.orderId}</TableCell>
+                    <TableCell className="max-w-xs truncate">{dispute.reason}</TableCell>
+                    <TableCell>
+                      <Badge variant={statusBadgeVariant(dispute.status)}>{dispute.status}</Badge>
+                    </TableCell>
+                    <TableCell>{new Date(dispute.createdAt).toLocaleString()}</TableCell>
+                    <TableCell className="text-right space-x-2">
+                      {dispute.status !== 'closed' &&
+                        dispute.status !== 'resolved_buyer' &&
+                        dispute.status !== 'resolved_seller' && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void resolve(dispute.id, 'resolved_buyer')}
+                            >
+                              Refund buyer
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void resolve(dispute.id, 'resolved_seller')}
+                            >
+                              Favor seller
+                            </Button>
+                          </>
+                        )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+export function AdminOps() {
+  const monitoringQuery = useAdminResource(apiGetPlatformMonitoring);
+  const payoutsQuery = useAdminResource(apiGetPlatformPayouts);
+
+  const runJobs = async () => {
+    try {
+      const result = await apiRunPlatformJobs();
+      toast.success(`Processed ${result.processed} background jobs`);
+      void monitoringQuery.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Job run failed');
+    }
+  };
+
+  if (monitoringQuery.loading) return <OpsLoading />;
+  if (monitoringQuery.error) {
+    return <OpsError message={monitoringQuery.error} onRetry={monitoringQuery.refresh} />;
+  }
+
+  const monitoring = monitoringQuery.data;
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <PageHeader
+        title="Platform Ops"
+        description="Monitoring alerts, payouts, and background job controls."
+      />
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={() => void monitoringQuery.refresh()}>
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh
+        </Button>
+        <Button onClick={() => void runJobs()}>Run background jobs</Button>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard
+          label="Stuck orders"
+          value={String(monitoring?.counts.stuckPendingOrders ?? 0)}
+          icon={ShoppingCart}
+        />
+        <StatCard
+          label="Pending payments"
+          value={String(monitoring?.counts.pendingPayments ?? 0)}
+          icon={Wallet}
+        />
+        <StatCard
+          label="Seller payable"
+          value={formatCurrency((monitoring?.counts.sellerPayableCents ?? 0) / 100)}
+          icon={Activity}
+        />
+      </div>
+      {(monitoring?.alerts.length ?? 0) > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Active alerts</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {monitoring!.alerts.map((alert) => (
+              <p key={alert} className="text-sm text-destructive">
+                {alert}
+              </p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Scheduled payouts</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Seller</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Scheduled</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(payoutsQuery.data ?? []).map((payout) => (
+                <TableRow key={payout.id}>
+                  <TableCell className="font-mono text-xs">{payout.sellerId}</TableCell>
+                  <TableCell>{formatCurrency(payout.amountCents / 100)}</TableCell>
+                  <TableCell>
+                    <Badge variant={statusBadgeVariant(payout.status)}>{payout.status}</Badge>
+                  </TableCell>
+                  <TableCell>{new Date(payout.scheduleAt).toLocaleString()}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

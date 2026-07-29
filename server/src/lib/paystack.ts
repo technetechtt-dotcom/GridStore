@@ -85,6 +85,30 @@ export async function verifyPaystackTransaction(reference: string) {
   }>(`/transaction/verify/${encodeURIComponent(reference)}`);
 }
 
+export async function refundPaystackTransaction(input: {
+  reference: string;
+  amountCents: number;
+  reason?: string;
+}) {
+  if (!paystackConfigured()) {
+    throw new Error('Paystack is not configured');
+  }
+  return paystackRequest<{
+    transaction: { reference: string; status: string };
+    amount: number;
+    currency: string;
+    status: string;
+  }>('/refund', {
+    method: 'POST',
+    body: JSON.stringify({
+      transaction: input.reference,
+      amount: input.amountCents,
+      currency: 'ZAR',
+      customer_note: input.reason ?? 'GridStore order refund',
+    }),
+  });
+}
+
 export function mapPaystackWebhookEvent(payload: Record<string, unknown>): {
   providerEventId: string;
   eventType: 'payment.authorized' | 'payment.captured' | 'payment.failed' | 'payment.cancelled' | 'payment.refunded';

@@ -95,11 +95,12 @@ paymentsRouter.post('/orders/:orderId/refund', async (req: AuthenticatedRequest,
   }
 
   try {
-    const payment = await refundCapturedPayment({
+    const result = await refundCapturedPayment({
       orderId: req.params.orderId,
       userId: req.user!.id,
       amountCents: parsed.data.amountCents,
     });
+    const payment = 'payment' in result ? result.payment : result;
     res.json(payment);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to refund payment';
@@ -107,12 +108,12 @@ paymentsRouter.post('/orders/:orderId/refund', async (req: AuthenticatedRequest,
   }
 });
 
-paymentsRouter.get('/ledger/summary', (req: AuthenticatedRequest, res) => {
+paymentsRouter.get('/ledger/summary', async (req: AuthenticatedRequest, res) => {
   if (!['admin', 'moderator'].includes(req.user!.role)) {
     res.status(403).json({ error: 'Forbidden' });
     return;
   }
-  validateLedgerIntegrity();
+  await validateLedgerIntegrity();
   res.json({
     journals: listLedgerJournals().length,
     balances: {

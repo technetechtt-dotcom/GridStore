@@ -34,9 +34,57 @@ export interface LedgerJournal {
 }
 
 const journals: LedgerJournal[] = [];
+let ledgerHydrated = false;
 
 export function resetLedgerForTests() {
   journals.length = 0;
+  ledgerHydrated = false;
+}
+
+export async function loadLedgerFromDatabase() {
+  if (!hasDatabase() || ledgerHydrated) return;
+  const db = requireSql();
+  const journalRows = (await db`
+    SELECT * FROM gridstore_ledger_journals ORDER BY created_at ASC
+  `) as Record<string, unknown>[];
+  const entryRows = (await db`
+    SELECT * FROM gridstore_ledger_entries ORDER BY created_at ASC
+  `) as Record<string, unknown>[];
+
+  const entriesByJournal = new Map<string, LedgerEntry[]>();
+  for (const row of entryRows) {
+    const entry: LedgerEntry = {
+      id: String(row.id),
+      journalId: String(row.journal_id),
+      account: String(row.account) as LedgerAccount,
+      direction: String(row.direction) as 'debit' | 'credit',
+      amountCents: Number(row.amount_cents),
+      currency: 'ZAR',
+      orderId: row.order_id ? String(row.order_id) : undefined,
+      paymentId: row.payment_id ? String(row.payment_id) : undefined,
+      memo: String(row.memo),
+      createdAt: String(row.created_at),
+      createdBy: String(row.created_by),
+    };
+    const list = entriesByJournal.get(entry.journalId) ?? [];
+    list.push(entry);
+    entriesByJournal.set(entry.journalId, list);
+  }
+
+  journals.length = 0;
+  for (const row of journalRows) {
+    const id = String(row.id);
+    journals.push({
+      id,
+      type: String(row.type),
+      orderId: row.order_id ? String(row.order_id) : undefined,
+      paymentId: row.payment_id ? String(row.payment_id) : undefined,
+      createdAt: String(row.created_at),
+      createdBy: String(row.created_by),
+      entries: entriesByJournal.get(id) ?? [],
+    });
+  }
+  ledgerHydrated = true;
 }
 
 export function listLedgerJournals() {

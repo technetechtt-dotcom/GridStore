@@ -131,6 +131,12 @@ export async function resolveDispute(input: {
       WHERE id = ${dispute.id}
     `;
   }
+
+  if (input.resolution === 'resolved_buyer') {
+    const { executeOrderRefund } = await import('../services/paymentService.js');
+    await executeOrderRefund({ orderId: dispute.orderId, userId: input.actorId });
+  }
+
   recordSecurityEvent('dispute.resolved', {
     actorId: input.actorId,
     targetId: dispute.id,

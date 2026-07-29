@@ -1053,6 +1053,17 @@ export class PostgresPlatformStore implements PlatformStore {
       })
     );
 
+    if (action === 'ship') {
+      const { addShippingEvent } = await import('../lib/shipping.js');
+      await addShippingEvent({
+        orderId,
+        actorId: actor.userId,
+        status: 'shipped',
+        trackingNumber: meta?.trackingNumber ?? order.trackingNumber,
+        note: 'Order marked shipped via fulfilment transition',
+      });
+    }
+
     return order;
   }
 
@@ -1190,12 +1201,8 @@ export class PostgresPlatformStore implements PlatformStore {
   }
 
   async refundOrder(userId: string, orderId: string): Promise<Order> {
-    const user = this.users.get(userId);
-    const role = user?.role ?? 'buyer';
-    if (role === 'buyer') {
-      throw new Error('Refund execution requires admin, support, or authorised seller workflow');
-    }
-    return this.transitionOrder({ userId, role }, orderId, 'refund');
+    const { executeOrderRefund } = await import('../services/paymentService.js');
+    return executeOrderRefund({ orderId, userId });
   }
 
   listPublicListings(query = '', status = 'active') {

@@ -166,6 +166,14 @@ platformOpsRouter.get('/monitoring', requireAuth, async (req: AuthenticatedReque
   res.json(await collectMonitoringSnapshot());
 });
 
+platformOpsRouter.get('/jobs', requireAuth, async (req: AuthenticatedRequest, res) => {
+  if (!['admin', 'moderator'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  res.json(await listJobs(50));
+});
+
 platformOpsRouter.post('/jobs/run', requireAuth, async (req: AuthenticatedRequest, res) => {
   if (!['admin', 'moderator'].includes(req.user!.role)) {
     res.status(403).json({ error: 'Forbidden' });

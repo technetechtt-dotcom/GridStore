@@ -12,7 +12,7 @@ import {
   verifyWebhookSignature,
   type PaymentIntent,
 } from '../lib/payments.js';
-import { mapPaystackWebhookEvent, verifyPaystackTransaction, paystackConfigured } from '../lib/paystack.js';
+import { mapPaystackWebhookEvent, refundPaystackTransaction, verifyPaystackTransaction, paystackConfigured } from '../lib/paystack.js';
 import { postPaymentCaptureJournal, postRefundJournal, validateLedgerIntegrity } from '../lib/ledger.js';
 import { recordSecurityEvent } from '../lib/security.js';
 import { platformStore } from '../store/index.js';
@@ -158,11 +158,20 @@ export async function refundCapturedPayment(input: {
 
   const payment = await getPaymentByOrder(input.orderId);
   if (!payment) {
-    throw new Error('No payment found for order');
+    return platformStore.transitionOrder({ userId: input.userId, role }, input.orderId, 'refund');
   }
+
   const amount = input.amountCents ?? payment.amountCents - payment.refundedCents;
+  if (payment.provider === 'paystack' && paystackConfigured()) {
+    await refundPaystackTransaction({
+      reference: payment.providerReference,
+      amountCents: amount,
+      reason: `Refund for order ${input.orderId}`,
+    });
+  }
+
   const updated = await markPaymentRefunded(payment.id, amount);
-  await platformStore.transitionOrder({ userId: input.userId, role }, input.orderId, 'refund');
+  const order = await platformStore.transitionOrder({ userId: input.userId, role }, input.orderId, 'refund');
   await postRefundJournal({
     orderId: input.orderId,
     paymentId: payment.id,
@@ -170,7 +179,18 @@ export async function refundCapturedPayment(input: {
     createdBy: input.userId,
   });
   await validateLedgerIntegrity();
-  return updated;
+  recordSecurityEvent('payment.refunded', {
+    actorId: input.userId,
+    targetId: payment.id,
+    detail: { orderId: input.orderId, amountCents: amount },
+  });
+  return { payment: updated, order };
+}
+
+/** Unified refund path for orders route, disputes, and admin actions. */
+export async function executeOrderRefund(input: { orderId: string; userId: string; amountCents?: number }) {
+  const result = await refundCapturedPayment(input);
+  return 'order' in result ? result.order : result;
 }
 
 export async function adminListPayments() {
