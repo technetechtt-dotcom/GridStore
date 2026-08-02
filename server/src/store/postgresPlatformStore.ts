@@ -1289,6 +1289,7 @@ export class PostgresPlatformStore implements PlatformStore {
       seller: sellerName,
       location: input.location,
       image:
+        input.image?.trim() ||
         'https://images.unsplash.com/photo-1556742502-ec7c0e9f34b1?auto=format&fit=crop&q=80&w=800',
       description: input.description,
       sellerId: userId,
@@ -1341,6 +1342,7 @@ export class PostgresPlatformStore implements PlatformStore {
     }
     if (input.description !== undefined) listing.description = input.description;
     if (input.location !== undefined) listing.location = input.location;
+    if (input.image !== undefined) listing.image = input.image;
     if (input.haggleEnabled !== undefined) {
       listing.haggleEnabled = input.haggleEnabled;
       listing.saleMode = input.haggleEnabled ? 'haggle' : listing.saleMode === 'haggle' ? 'fixed' : listing.saleMode;
@@ -1370,6 +1372,7 @@ export class PostgresPlatformStore implements PlatformStore {
         inventory = ${listing.inventory},
         description = ${listing.description},
         location = ${listing.location},
+        image = ${listing.image},
         status = ${listing.status},
         sale_mode = ${listing.saleMode},
         haggle_enabled = ${listing.haggleEnabled},

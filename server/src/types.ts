@@ -277,6 +277,7 @@ export interface JobApplication {
   jobTitle: string;
   applicantName: string;
   cvFileName: string;
+  cvUrl?: string;
   status: 'submitted' | 'reviewing' | 'shortlisted';
   createdAt: string;
 }

@@ -56,6 +56,7 @@ import {
   apiGetAdminPayments,
   apiGetAdminReports,
   apiGetAdminSettings,
+  apiUpdateAdminSettings,
   apiGetAdminStats,
   apiGetAdminStores,
   apiGetAdminUsers,
@@ -1117,6 +1118,20 @@ export function AdminAiMonitoring() {
 
 export function AdminSettings() {
   const { data, loading, error, refresh } = useAdminResource(apiGetAdminSettings);
+  const [savingKey, setSavingKey] = React.useState<string | null>(null);
+
+  async function toggleFlag(key: string, enabled: boolean) {
+    setSavingKey(key);
+    try {
+      await apiUpdateAdminSettings({ features: [{ key, enabled }] });
+      toast.success(`${key} ${enabled ? 'enabled' : 'disabled'}`);
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Unable to update settings');
+    } finally {
+      setSavingKey(null);
+    }
+  }
 
   if (loading) return <OpsLoading />;
   if (error) return <OpsError message={error} onRetry={refresh} />;
@@ -1134,9 +1149,14 @@ export function AdminSettings() {
                   Feature flag · {data?.environment ?? 'production'}
                 </p>
               </div>
-              <Badge variant={flag.enabled ? 'default' : 'secondary'}>
+              <Button
+                size="sm"
+                variant={flag.enabled ? 'default' : 'outline'}
+                disabled={savingKey === flag.key}
+                onClick={() => void toggleFlag(flag.key, !flag.enabled)}
+              >
                 {flag.enabled ? 'Enabled' : 'Disabled'}
-              </Badge>
+              </Button>
             </div>
           ))}
         </CardContent>

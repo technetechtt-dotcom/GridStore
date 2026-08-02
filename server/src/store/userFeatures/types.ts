@@ -41,6 +41,8 @@ export interface UserFeaturesStore {
     }
   ): Promise<RentalReservation>;
   listApplications(userId: string): Promise<JobApplication[]>;
+  listApplicationsForJob(jobId: string): Promise<JobApplication[]>;
+  listAllApplications(): Promise<JobApplication[]>;
   createApplication(
     userId: string,
     input: Omit<JobApplication, 'id' | 'userId' | 'createdAt' | 'status'>

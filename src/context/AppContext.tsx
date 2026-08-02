@@ -1227,7 +1227,15 @@ export function AppProvider({
     };
 
     if (isPlatformApiAvailable() && user) {
-      void apiCreateApplication({ jobId, jobTitle, applicantName, cvFileName })
+      const cvUrl = window.localStorage.getItem('gridstore-cv-url') || undefined;
+      const storedName = window.localStorage.getItem('gridstore-cv-name') || undefined;
+      void apiCreateApplication({
+        jobId,
+        jobTitle,
+        applicantName,
+        cvFileName: storedName || cvFileName,
+        cvUrl,
+      })
         .then(applyLocal)
         .catch(() => applyLocal(localApplication));
       return;

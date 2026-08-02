@@ -18,6 +18,7 @@ export interface ListingInput {
   inventory: number;
   description: string;
   location: string;
+  image?: string;
   saleMode?: 'fixed' | 'haggle' | 'auction';
   haggleEnabled?: boolean;
   startingBid?: number;

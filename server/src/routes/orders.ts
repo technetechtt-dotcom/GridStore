@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import { requireAuth, requireVerifiedEmail, type AuthenticatedRequest } from '../middleware/auth.js';
 import { platformStore } from '../store/index.js';
 
 export const ordersRouter = Router();
@@ -82,7 +82,7 @@ ordersRouter.post('/:id/transitions', async (req: AuthenticatedRequest, res) => 
   }
 });
 
-ordersRouter.post('/', async (req: AuthenticatedRequest, res) => {
+ordersRouter.post('/', requireVerifiedEmail, async (req: AuthenticatedRequest, res) => {
   const parsed = createOrderSchema.safeParse({
     ...req.body,
     idempotencyKey: req.body?.idempotencyKey ?? req.header('idempotency-key') ?? undefined,

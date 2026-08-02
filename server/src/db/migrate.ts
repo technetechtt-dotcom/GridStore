@@ -686,6 +686,23 @@ const VERSIONED_MIGRATIONS: Array<{
       await db`ALTER TABLE gridstore_dispute_evidence DROP COLUMN IF EXISTS attachment_url`;
     },
   },
+  {
+    id: '20260802_settings_and_cv',
+    async up(db) {
+      await db`
+        CREATE TABLE IF NOT EXISTS gridstore_settings (
+          id TEXT PRIMARY KEY,
+          payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+      await db`ALTER TABLE gridstore_job_applications ADD COLUMN IF NOT EXISTS cv_url TEXT`;
+    },
+    async down(db) {
+      await db`ALTER TABLE gridstore_job_applications DROP COLUMN IF EXISTS cv_url`;
+      await db`DROP TABLE IF EXISTS gridstore_settings`;
+    },
+  },
 ];
 
 async function applyVersionedMigrations(db: Sql) {

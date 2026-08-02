@@ -92,3 +92,36 @@ export function requireSeller(req: AuthenticatedRequest, res: Response, next: Ne
   }
   next();
 }
+
+/** Blocks checkout/listing publish when email is unverified (respects platform setting). */
+export async function requireVerifiedEmail(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    const { isFeatureEnabled } = await import('../lib/platformSettings.js');
+    const required = await isFeatureEnabled('require_email_verification', true);
+    if (!required) {
+      next();
+      return;
+    }
+    const stored = platformStore.getUserById(req.user.id);
+    // Demo/legacy accounts often set `verified` without the newer emailVerified flag.
+    const ok = Boolean(stored?.emailVerified || stored?.verified || req.user.verified);
+    if (!ok) {
+      res.status(403).json({
+        error: 'Email verification required',
+        code: 'EMAIL_VERIFICATION_REQUIRED',
+      });
+      return;
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+}

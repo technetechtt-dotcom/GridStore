@@ -144,6 +144,15 @@ export function apiGetAdminSettings() {
   return platformFetch<AdminSettings>('/admin/settings');
 }
 
+export function apiUpdateAdminSettings(input: {
+  features: Array<{ key: string; enabled: boolean }>;
+}) {
+  return platformFetch<AdminSettings>('/admin/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
 export function apiGetAdminStores() {
   return platformFetch<AdminStoreRow[]>('/admin/stores');
 }

@@ -139,5 +139,7 @@ Deploy notes:
 2. Point Paystack webhook to `POST /api/payments/webhooks/paystack` with the raw-body signature.
 3. Sellers must complete **bank payout profile** before production payouts will transfer (missing recipients fail closed).
 4. Demo logins (`*@gridstore.local` / `DemoSeed-ChangeMe1`) only exist when `ENABLE_DEMO_DATA=true` (refused in production).
+5. Uploads default to local disk under `server/uploads/`; set `STORAGE_DRIVER=s3` (+ endpoint/bucket/keys) for R2/S3-compatible storage.
+6. Checkout and new listings require a verified email when the `require_email_verification` admin flag is enabled (default on).
 
 Local demo password for seeded users: **`DemoSeed-ChangeMe1`** (not `demo1234`).

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { optionalAuth, requireAuth, requireSeller, type AuthenticatedRequest } from '../middleware/auth.js';
+import { optionalAuth, requireAuth, requireSeller, requireVerifiedEmail, type AuthenticatedRequest } from '../middleware/auth.js';
 import { platformStore } from '../store/index.js';
 
 export const listingsRouter = Router();
@@ -12,6 +12,7 @@ const listingSchema = z.object({
   inventory: z.number().int().nonnegative(),
   description: z.string().min(10),
   location: z.string().min(2),
+  image: z.string().url().or(z.string().regex(/^\/api\/uploads\/listing\/[A-Za-z0-9._-]+$/)).optional(),
   saleMode: z.enum(['fixed', 'haggle', 'auction']).optional(),
   haggleEnabled: z.boolean().optional(),
   startingBid: z.number().nonnegative().optional(),
@@ -46,7 +47,7 @@ listingsRouter.get('/:id', (req, res) => {
   res.json(stripSellerId(listing));
 });
 
-listingsRouter.post('/', requireAuth, requireSeller, async (req: AuthenticatedRequest, res) => {
+listingsRouter.post('/', requireAuth, requireSeller, requireVerifiedEmail, async (req: AuthenticatedRequest, res) => {
   const parsed = listingSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Invalid listing payload', details: parsed.error.flatten() });

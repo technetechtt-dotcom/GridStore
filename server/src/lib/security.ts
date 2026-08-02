@@ -1,4 +1,5 @@
 import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
+import { hasDatabase, requireSql } from '../db/client.js';
 
 const SENSITIVE_KEYS = new Set([
   'password',
@@ -94,6 +95,26 @@ export interface SecurityAuditEvent {
 
 const memoryAuditEvents: SecurityAuditEvent[] = [];
 
+async function persistSecurityEvent(event: SecurityAuditEvent) {
+  if (!hasDatabase()) return;
+  try {
+    const db = requireSql();
+    await db`
+      INSERT INTO gridstore_security_events (
+        id, type, actor_id, target_id, ip, request_id, detail, created_at
+      ) VALUES (
+        ${event.id}, ${event.type}, ${event.actorId ?? null}, ${event.targetId ?? null},
+        ${event.ip ?? null}, ${event.requestId ?? null},
+        ${event.detail ? JSON.stringify(event.detail) : null}::jsonb,
+        ${event.createdAt}
+      )
+      ON CONFLICT (id) DO NOTHING
+    `;
+  } catch {
+    // Persistence must never break request paths.
+  }
+}
+
 export function recordSecurityEvent(
   type: string,
   detail: {
@@ -125,11 +146,44 @@ export function recordSecurityEvent(
     requestId: event.requestId,
     detail: event.detail,
   });
+  void persistSecurityEvent(event);
   return event;
 }
 
-export function listSecurityEvents(limit = 100) {
+export async function listSecurityEvents(limit = 100) {
+  if (hasDatabase()) {
+    try {
+      const db = requireSql();
+      const rows = (await db`
+        SELECT id, type, actor_id, target_id, ip, request_id, detail, created_at
+        FROM gridstore_security_events
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `) as Array<Record<string, unknown>>;
+      if (rows.length) {
+        return rows.map((row) => ({
+          id: String(row.id),
+          type: String(row.type),
+          actorId: row.actor_id ? String(row.actor_id) : undefined,
+          targetId: row.target_id ? String(row.target_id) : undefined,
+          ip: row.ip ? String(row.ip) : undefined,
+          requestId: row.request_id ? String(row.request_id) : undefined,
+          detail:
+            row.detail && typeof row.detail === 'object'
+              ? (row.detail as Record<string, unknown>)
+              : undefined,
+          createdAt: String(row.created_at),
+        }));
+      }
+    } catch {
+      // fall through to memory
+    }
+  }
   return memoryAuditEvents.slice(0, limit);
+}
+
+export function resetSecurityEventsForTests() {
+  memoryAuditEvents.length = 0;
 }
 
 /** Minimal TOTP (RFC 6238) helper for admin/moderator MFA. */

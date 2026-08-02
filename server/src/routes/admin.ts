@@ -131,8 +131,8 @@ adminRouter.post('/users/:id/reset-password', requireAdmin, async (req, res) => 
   }
 });
 
-adminRouter.get('/security-events', requireAdmin, (_req, res) => {
-  res.json({ events: listSecurityEvents(100) });
+adminRouter.get('/security-events', requireAdmin, async (_req, res) => {
+  res.json({ events: await listSecurityEvents(100) });
 });
 
 adminRouter.get('/listings', async (_req, res) => {
@@ -394,16 +394,28 @@ adminRouter.patch('/auctions/:id', async (req, res) => {
   }
 });
 
-adminRouter.get('/settings', requireAdmin, (_req, res) => {
-  res.json({
-    features: [
-      { key: 'ai_assistant', label: 'Enable AI Shopping Assistant', enabled: true },
-      { key: 'escrow_payments', label: 'Enable Escrow Payments', enabled: false },
-      { key: 'seller_subscriptions', label: 'Enable Seller Subscriptions', enabled: false },
-      { key: 'instant_eft', label: 'Enable Instant EFT', enabled: true },
-      { key: 'dark_mode_default', label: 'Enable Dark Mode Default', enabled: true },
-    ],
-    regions: ['Western Cape', 'Gauteng', 'KwaZulu-Natal', 'National'],
-    environment: process.env.NODE_ENV ?? 'development',
-  });
+adminRouter.get('/settings', requireAdmin, async (_req, res) => {
+  const { getPlatformSettings } = await import('../lib/platformSettings.js');
+  res.json(await getPlatformSettings());
+});
+
+adminRouter.patch('/settings', requireAdmin, async (req, res) => {
+  const parsed = z
+    .object({
+      features: z
+        .array(
+          z.object({
+            key: z.string().min(2).max(80),
+            enabled: z.boolean(),
+          })
+        )
+        .min(1),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid settings payload' });
+    return;
+  }
+  const { updatePlatformSettings } = await import('../lib/platformSettings.js');
+  res.json(await updatePlatformSettings(parsed.data));
 });

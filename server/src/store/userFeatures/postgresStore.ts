@@ -303,6 +303,24 @@ export class PostgresUserFeaturesStore implements UserFeaturesStore {
     return rows.map(mapApplication);
   }
 
+  async listAllApplications() {
+    await this.ensureSeeded();
+    const db = requireSql();
+    const rows = (await db`
+      SELECT * FROM gridstore_job_applications ORDER BY created_at DESC LIMIT 500
+    `) as Record<string, string>[];
+    return rows.map(mapApplication);
+  }
+
+  async listApplicationsForJob(jobId: string) {
+    await this.ensureSeeded();
+    const db = requireSql();
+    const rows = (await db`
+      SELECT * FROM gridstore_job_applications WHERE job_id = ${jobId} ORDER BY created_at DESC
+    `) as Record<string, string>[];
+    return rows.map(mapApplication);
+  }
+
   async createApplication(
     userId: string,
     input: Omit<JobApplication, 'id' | 'userId' | 'createdAt' | 'status'>
@@ -319,10 +337,11 @@ export class PostgresUserFeaturesStore implements UserFeaturesStore {
 
     await db`
       INSERT INTO gridstore_job_applications (
-        id, user_id, job_id, job_title, applicant_name, cv_file_name, status, created_at
+        id, user_id, job_id, job_title, applicant_name, cv_file_name, cv_url, status, created_at
       ) VALUES (
         ${application.id}, ${application.userId}, ${application.jobId}, ${application.jobTitle},
-        ${application.applicantName}, ${application.cvFileName}, ${application.status}, ${application.createdAt}
+        ${application.applicantName}, ${application.cvFileName}, ${application.cvUrl ?? null},
+        ${application.status}, ${application.createdAt}
       )
     `;
     return application;
@@ -422,6 +441,7 @@ function mapApplication(row: Record<string, string>): JobApplication {
     jobTitle: row.job_title,
     applicantName: row.applicant_name,
     cvFileName: row.cv_file_name,
+    cvUrl: row.cv_url || undefined,
     status: row.status as JobApplication['status'],
     createdAt: row.created_at,
   };

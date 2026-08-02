@@ -178,6 +178,14 @@ export class MemoryUserFeaturesStore implements UserFeaturesStore {
     return [...(this.applications.get(userId) ?? [])];
   }
 
+  async listAllApplications() {
+    return Array.from(this.applications.values()).flat();
+  }
+
+  async listApplicationsForJob(jobId: string) {
+    return (await this.listAllApplications()).filter((item) => item.jobId === jobId);
+  }
+
   async createApplication(
     userId: string,
     input: Omit<JobApplication, 'id' | 'userId' | 'createdAt' | 'status'>

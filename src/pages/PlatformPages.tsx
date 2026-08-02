@@ -378,12 +378,51 @@ export function JobDetail() {
 }
 
 export function CvUpload() {
+  const [file, setFile] = React.useState<File | null>(null);
+  const [savedUrl, setSavedUrl] = React.useState<string | null>(() =>
+    typeof window !== 'undefined' ? window.localStorage.getItem('gridstore-cv-url') : null
+  );
+  const [saving, setSaving] = React.useState(false);
+
   return (
     <PageShell title="Upload CV" description="Attach a CV profile for job applications.">
       <Card>
         <CardContent className="p-6 space-y-3">
-          <Input type="file" aria-label="Upload CV" />
-          <Button onClick={() => toast.success('CV profile saved')}>Save CV profile</Button>
+          <Input
+            type="file"
+            accept="application/pdf,image/jpeg,image/png"
+            aria-label="Upload CV"
+            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          />
+          {savedUrl ? (
+            <p className="text-sm text-muted-foreground">Saved profile CV: {savedUrl}</p>
+          ) : null}
+          <Button
+            disabled={!file || saving}
+            onClick={() => {
+              if (!file) return;
+              setSaving(true);
+              void import('../services/platformApi')
+                .then(({ apiUploadCv, isPlatformApiAvailable }) => {
+                  if (!isPlatformApiAvailable()) {
+                    throw new Error('Connect to the platform API to upload a CV');
+                  }
+                  return apiUploadCv(file);
+                })
+                .then((uploaded) => {
+                  window.localStorage.setItem('gridstore-cv-url', uploaded.url);
+                  window.localStorage.setItem('gridstore-cv-name', uploaded.attachmentName);
+                  setSavedUrl(uploaded.url);
+                  toast.success('CV profile saved');
+                })
+                .catch((error: unknown) => {
+                  toast.error(error instanceof Error ? error.message : 'Unable to save CV');
+                })
+                .finally(() => setSaving(false));
+            }}
+          >
+            {saving ? 'Saving…' : 'Save CV profile'}
+          </Button>
         </CardContent>
       </Card>
     </PageShell>
@@ -391,13 +430,73 @@ export function CvUpload() {
 }
 
 export function EmployerDashboard() {
+  const [applications, setApplications] = React.useState<
+    Array<{ id: string; jobTitle: string; applicantName: string; status: string; cvUrl?: string }>
+  >([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void import('../services/platformApi')
+      .then(({ apiGetApplications, isPlatformApiAvailable, getAuthToken }) => {
+        if (!isPlatformApiAvailable() || !getAuthToken()) {
+          return [] as typeof applications;
+        }
+        return apiGetApplications({ scope: 'employer' });
+      })
+      .then((rows) => {
+        if (!cancelled) setApplications(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setApplications([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const shortlisted = applications.filter((item) => item.status === 'shortlisted').length;
+
   return (
     <PageShell title="Employer Dashboard" description="Manage company roles and candidate applications.">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <MetricCard title="Open roles" value={String(jobs.length)} detail="Jobs visible to candidates" />
-        <MetricCard title="Applications" value="12" detail="Candidate pipeline preview" />
-        <MetricCard title="Shortlist" value="4" detail="Ready for review" />
+        <MetricCard
+          title="Applications"
+          value={loading ? '…' : String(applications.length)}
+          detail="Candidate pipeline"
+        />
+        <MetricCard title="Shortlist" value={loading ? '…' : String(shortlisted)} detail="Ready for review" />
       </div>
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>Recent applications</CardTitle>
+          <CardDescription>Live submissions from the jobs board.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {applications.length === 0 && !loading ? (
+            <p className="text-sm text-muted-foreground">No applications yet.</p>
+          ) : (
+            applications.slice(0, 20).map((item) => (
+              <div key={item.id} className="flex items-center justify-between rounded-xl border p-3 text-sm">
+                <div>
+                  <p className="font-medium">{item.applicantName}</p>
+                  <p className="text-muted-foreground">{item.jobTitle}</p>
+                </div>
+                <div className="text-right">
+                  <Badge variant="outline">{item.status}</Badge>
+                  {item.cvUrl ? (
+                    <p className="mt-1 max-w-[180px] truncate text-xs text-muted-foreground">{item.cvUrl}</p>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
     </PageShell>
   );
 }

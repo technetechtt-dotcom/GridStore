@@ -35,7 +35,8 @@ export async function collectMonitoringSnapshot(): Promise<MonitoringSnapshot> {
   ).length;
   const failedPayments = payments.filter((payment) => payment.status === 'failed').length;
 
-  const recentAuthFailures = listSecurityEvents(200).filter(
+  const securityEvents = await listSecurityEvents(200);
+  const recentAuthFailures = securityEvents.filter(
     (event) =>
       event.type.includes('auth.') &&
       (event.type.includes('fail') || event.type.includes('lock')) &&

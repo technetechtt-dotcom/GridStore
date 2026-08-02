@@ -526,10 +526,22 @@ export async function apiOpenReturn(input: {
 }
 
 export async function apiUploadEvidence(file: File) {
+  return apiUploadFile('/uploads/evidence', file);
+}
+
+export async function apiUploadCv(file: File) {
+  return apiUploadFile('/uploads/cv', file);
+}
+
+export async function apiUploadListingImage(file: File) {
+  return apiUploadFile('/uploads/listing', file);
+}
+
+async function apiUploadFile(path: string, file: File) {
   const form = new FormData();
   form.append('file', file);
   const token = getAuthToken();
-  const response = await fetch(buildApiUrl('/uploads/evidence'), {
+  const response = await fetch(buildApiUrl(path), {
     method: 'POST',
     headers: token
       ? {
@@ -543,6 +555,7 @@ export async function apiUploadEvidence(file: File) {
     attachmentName: string;
     mimeType: string;
     size: number;
+    kind?: string;
     error?: string;
   }>(response);
   if (!response.ok) {
@@ -773,8 +786,13 @@ export async function apiCreateReservation(input: {
   });
 }
 
-export async function apiGetApplications() {
-  return platformFetch<JobApplication[]>('/applications');
+export async function apiGetApplications(query?: { scope?: 'mine' | 'employer'; jobId?: string }) {
+  return platformFetch<JobApplication[]>('/applications', {
+    query: {
+      scope: query?.scope,
+      jobId: query?.jobId,
+    },
+  });
 }
 
 export async function apiCreateApplication(input: {
@@ -782,6 +800,7 @@ export async function apiCreateApplication(input: {
   jobTitle: string;
   applicantName?: string;
   cvFileName?: string;
+  cvUrl?: string;
 }) {
   return platformFetch<JobApplication>('/applications', {
     method: 'POST',
