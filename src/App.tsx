@@ -49,6 +49,7 @@ import {
 } from './pages/admin/AdminMarketplacePages';
 import { DeliveryTrackingPage } from './pages/delivery/DeliveryPages';
 import { PaymentMethodsPage, WalletPage } from './pages/payments/PaymentPages';
+import { CommercePlatform } from './pages/CommercePlatform';
 import {
   Advertising,
   BookingDetail,
@@ -77,6 +78,7 @@ export function App() {
             <Route element={<AppLayout />}>
               <Route path="/" element={<Home />} />
               <Route path="/marketplace" element={<Marketplace />} />
+              <Route path="/commerce" element={<CommercePlatform />} />
               <Route path="/auctions" element={<Auctions />} />
               <Route path="/flash-sales" element={<FlashSales />} />
               <Route path="/product/:id" element={<ProductDetail />} />
