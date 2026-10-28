@@ -21,6 +21,10 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useApp } from '../../context/AppContext';
 const SUB_NAV = [
 {
+  label: 'Commerce SaaS',
+  to: '/commerce'
+},
+{
   label: 'Marketplace',
   to: '/marketplace'
 },
