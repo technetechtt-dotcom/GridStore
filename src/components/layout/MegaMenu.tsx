@@ -53,6 +53,14 @@ const COLUMNS: MegaColumn[] = [
   to: '/seller',
   items: [
   {
+    label: 'Commerce SaaS',
+    to: '/commerce'
+  },
+  {
+    label: 'Supplier marketplace',
+    to: '/commerce#suppliers'
+  },
+  {
     label: 'List an item',
     to: '/seller'
   },
